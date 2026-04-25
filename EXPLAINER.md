@@ -1,0 +1,520 @@
+# EXPLAINER.md — Deep Code Explanations for Viva Preparation
+# Agent: after each phase completes, ADD a section below.
+# DO NOT overwrite previous sections.
+# Reader: read the section for whichever phase you're explaining.
+# Purpose: you should be able to answer ANY question about ANY line.
+
+---
+
+## HOW TO USE THIS FILE
+- Before viva: read section for each phase you want to explain
+- Each section covers: WHAT the code does, WHY this design, WHAT breaks if changed
+- All concepts explained from first principles
+
+---
+
+## GENERAL CONCEPTS (read before any phase)
+
+### What is a compiler vs a transpiler?
+A compiler converts source code to a LOWER level (e.g. C → machine code).
+A transpiler (source-to-source compiler) converts between languages at the
+SAME level (e.g. Python → C). Both use the same pipeline:
+lex → parse → analyze → generate. The difference is only in the backend.
+
+### What is a pipeline?
+A series of stages where the output of one stage is the input of the next.
+If any stage fails, all subsequent stages are blocked.
+This mirrors how real compilers like GCC and Clang work.
+
+### Why Python to build a compiler?
+Python's dataclasses make AST nodes clean and readable.
+isinstance() checks read like English. No manual memory management.
+The compiler's source code is as readable as possible — important for explanation.
+
+### What is the difference between syntax and semantics?
+Syntax: is the structure grammatically valid? "if x >" is invalid syntax.
+Semantics: does it mean something? "print(z)" is valid syntax but if z
+was never declared, it is semantically invalid.
+The lexer+parser check syntax. The semantic analyzer checks semantics.
+
+### What is an AST?
+Abstract Syntax Tree. A tree where each node represents a construct
+(function, if-statement, expression). "Abstract" = syntactic details
+(semicolons, braces, indentation) are stripped away.
+Two programs with the same meaning but different syntax produce the same AST.
+This is why transpilation works: translate to AST, regenerate in target language.
+
+---
+
+## PHASE 0 — Foundation
+Phase 0 creates the three foundational files that every other phase imports.
+These files are FROZEN after this phase — any change would break all downstream phases.
+
+### errors.py — every concept explained
+
+**@dataclass decorator**
+`@dataclass` tells Python to auto-generate `__init__`, `__repr__`, and `__eq__`
+from the class's field annotations. Without it, CompilerError would need a manual
+`def __init__(self, phase, message, line=None, col=None): self.phase = phase; ...`
+— 4 lines of boilerplate per class. With `@dataclass`, we just declare the fields
+and Python generates the constructor. This is why every AST node uses it too.
+
+**Phase enum**
+`Phase(Enum)` defines named constants for each compiler stage: PREPROCESSOR, LEXER,
+PARSER, SEMANTIC, IR, CODEGEN, VALIDATOR. Why not plain strings? If you write
+`Phase.LEXR` (typo), Python crashes immediately at import time. If you write
+`"lexr"` (string typo), it silently works and the frontend never matches it. Enums
+catch bugs at definition time, not at runtime.
+
+**CompilerError fields**
+- `phase: Phase` — which stage found this error (used by frontend to show error under correct phase)
+- `message: str` — human-readable description ("Undeclared variable 'z'")
+- `line: int = None` — 1-based line number (None for errors without location, like "empty source")
+- `col: int = None` — 1-based column number
+- `to_dict()` — serializes to `{"phase":"lexer","message":"...","line":5,"col":12}` for JSON API
+
+**CompilerErrorList extending Exception**
+Why extend Exception instead of returning a list?
+When the lexer finds errors, the parser must NOT run on broken tokens. Python's
+exception mechanism naturally propagates up: `raise CompilerErrorList(errors)` in
+the lexer → caught in main.py → pipeline marks all subsequent phases as "blocked".
+If we returned a list instead, every caller would need `if errors: don't proceed`
+checks — easy to forget, leading to silent failures.
+
+**Why collect all errors before raising**
+GCC shows "5 errors found" because it collects them all. A compiler that stops at
+error #1 forces the user to fix one error, recompile, see the next error, fix,
+recompile... N iterations for N errors. By collecting ALL errors in a list and
+raising once, the user sees everything at once. This saves time and shows competence.
+
+**The collect-then-raise pattern (used in EVERY phase)**
+```python
+errors = []                  # start with empty list
+# ... do work ...
+if something_wrong:
+    errors.append(CompilerError(Phase.LEXER, "msg", line, col))
+# DON'T raise here — continue checking for more errors
+# ... more work ...
+if errors:                   # only at the END of the phase
+    raise CompilerErrorList(errors)
+return result                # only reached if zero errors
+```
+This pattern appears identically in preprocessor, lexer, parser, semantic, IR,
+codegen, and validator. It is the single most important pattern in the codebase.
+
+---
+
+### ast_nodes.py — every concept explained
+
+**Why dataclasses for AST nodes**
+An AST with 20+ node types would need 20+ `__init__` methods if written manually.
+`@dataclass` eliminates this: declare fields, get constructors free. Additionally,
+`isinstance(node, IfStmt)` reads like English — pattern matching on node types is
+how every phase works: the parser creates nodes, the analyzer switches on types,
+the generator switches on types. Dataclasses make this readable and maintainable.
+
+**DataType.UNKNOWN — why it exists**
+When the Python parser sees `x = 5`, it doesn't know x's type yet. The literal `5`
+is clearly INT, but the variable could be reassigned later. So the parser creates
+`VarDecl(name='x', data_type=UNKNOWN, value=Literal(5, INT))`. The semantic
+analyzer (Phase 4) then resolves UNKNOWN → INT by looking at the assigned value.
+Without UNKNOWN, the parser would need the semantic analyzer's logic — violating
+separation of concerns.
+
+**Why ASTNode base class**
+All 20 nodes inherit from ASTNode which has a `line: int` field. This means:
+1) `isinstance(node, ASTNode)` checks if ANY object is an AST node
+2) Every node automatically has source line info for error messages
+3) Type hints like `body: list[ASTNode]` express "any statement goes here"
+Without a base class, we'd need Union types with all 20 nodes listed.
+
+**Program node — why it has functions AND globals separately**
+Python allows code at module level: `x = 5; print(x)` without any function.
+C requires everything inside functions. By separating `functions` and `globals`,
+the C generator can wrap global statements in an auto-generated `main()` function.
+If they were mixed in one list, the generator would need to scan and separate them.
+
+**ForRangeStmt vs ForEachStmt — why two nodes**
+ForRangeStmt has `start/stop/step` (numeric bounds) — e.g., `for i in range(10)`.
+ForEachStmt has `array_name` (iterate over collection) — e.g., `for x in arr`.
+One node with optional fields: every generator needs `if node.array_name: ...`
+to detect which kind. Two nodes: `visit_ForRangeStmt` and `visit_ForEachStmt`
+are separate methods. The AST expresses MEANING, not syntax.
+
+**PrintStmt.values as list — why not single value**
+`print(x, y, z)` is common Python. If values were a single ASTNode, we'd need
+nested PrintStmts or a tuple wrapper node. A list naturally represents "print
+these things separated by spaces". The C generator maps this to a printf format
+string: `printf("%d %f %s\n", x, y, z)` — one format specifier per list element.
+
+**Literal.data_type — why store type inside the literal**
+Type inference works bottom-up: the type of `x + y` depends on the types of x and y.
+Literals are the BASE CASE: `5` is INT, `3.14` is FLOAT, `True` is BOOL.
+If Literal didn't store its type, the semantic analyzer would need a separate
+function to infer types from values (`isinstance(5, int) → INT`). Storing it in
+the node means type info flows naturally up the tree during analysis.
+
+**BinaryOp recursion — how it handles nested expressions**
+`a * b + c` → `BinaryOp('+', BinaryOp('*', Var(a), Var(b)), Var(c))`
+The `*` is deeper in the tree (higher precedence), evaluated first.
+The `+` is at the root, evaluated last. This tree structure naturally encodes
+operator precedence. The parser creates the right nesting by having separate
+functions for each precedence level (expression → comparison → term → factor).
+
+---
+
+### lexer/tokens.py — every concept explained
+
+**What is a token**
+A token is the smallest meaningful unit of source code. The string `if x > 0` has
+four tokens: `IF`, `NAME:x`, `GT`, `NUMBER:0`. Whitespace between tokens is
+consumed but not stored. The lexer converts a stream of characters into a stream
+of tokens — this is called "lexical analysis" or "scanning".
+
+**Why TokenType is an Enum not strings**
+`TokenType.IFF` → Python crash at import. `"IFF"` → silent bug at runtime.
+Enums are a closed set: you can iterate `TokenType` to see all valid types.
+The parser can exhaustively match on them. Adding a new token type requires adding
+it to the Enum — all existing code still works, and new code can handle it.
+
+**Why store line and col in Token**
+The parser and semantic analyzer work with tokens, not raw source text.
+When the parser sees an unexpected token, it needs to say "Error at line 5, col 12".
+Since the parser doesn't have the raw source, the lexer must embed this position
+info into each token. Without it, error messages would say "Error somewhere" — useless.
+
+**Why INDENT and DEDENT are token types**
+Python uses indentation for blocks. C uses `{` and `}`. To make the parser work
+the same way for both, the Python lexer emits INDENT tokens (= block start, like `{`)
+and DEDENT tokens (= block end, like `}`). The parser then treats INDENT/DEDENT
+exactly like LBRACE/RBRACE. This is how CPython's real lexer works too — it's a
+well-established technique called "offside rule tokenization".
+
+---
+
+## PHASE 1 — Preprocessor
+The preprocessor is the first stage of the pipeline. It strips comments from
+source code so the lexer doesn't need to handle comment syntax.
+
+**What a preprocessor does and why it runs before the lexer**
+In production compilers (GCC, Clang), the preprocessor handles `#include`,
+`#define`, macro expansion, and conditional compilation. Our preprocessor is
+simpler: it only strips comments. It runs BEFORE the lexer because if comments
+weren't removed, the lexer would need to handle `#` inside strings vs `#`
+starting a comment, `//` as division vs `//` as comment, etc. Separation of
+concerns: preprocessor deals with comments, lexer deals with tokens.
+
+**Why comments must be stripped before lexing**
+Consider: `x = 5 # this is a comment`. If the lexer sees this raw, it would try
+to tokenize `#`, `this`, `is`, `a`, `comment` — all as variable names or unknown
+characters. By stripping comments first, the lexer only sees `x = 5 `, which
+tokenizes cleanly to `NAME:x, ASSIGN, NUMBER:5`.
+
+**How C multi-line comments differ from Python single-line comments**
+Python comments are trivial: `#` to end of line. Always one line.
+C block comments `/* ... */` can span multiple lines and can appear in the MIDDLE
+of a line: `int /* type */ x = 5;`. The preprocessor must track state (am I inside
+a block comment?) and handle the case where `*/` is never found (unclosed comment).
+This is why C comment stripping uses a character-by-character state machine while
+Python comment stripping works line-by-line.
+
+**Why save stripped comments instead of discarding them**
+The UI's Preprocessor modal shows "Comments found: [list]". This serves two purposes:
+1) The user can verify their comments were correctly identified (not accidentally
+   stripping code that looks like a comment inside a string).
+2) It demonstrates the preprocessor's work — in a demo or viva, you can show that
+   the preprocessor correctly identified and separated comments from code.
+
+**The unclosed comment error — what happens without this check**
+`int x = 5; /* this comment never ends` — without the check, the rest of the file
+(including actual code) would be silently consumed as part of the comment. The
+program would appear empty to the lexer, producing confusing errors like "empty
+source" instead of the real problem. By detecting unclosed `/*`, we give a precise
+error: "Unclosed block comment at line 3" — pointing to exactly where the `/*` started.
+
+---
+
+## PHASE 2 — Lexer
+The lexer converts raw source text into a stream of tokens. Three lexers are
+implemented: PythonLexer, CLexer, and CppLexer (extends CLexer).
+
+**What a lexer does (full explanation)**
+The lexer (also called "scanner" or "tokenizer") reads source code character by
+character and groups characters into tokens. `if x > 0` becomes four tokens:
+`IF`, `NAME:x`, `GT`, `NUMBER:0`. Whitespace between tokens is consumed but not
+stored. The lexer also classifies each token: is `if` a keyword or a variable name?
+Is `32` a number or two separate characters? This classification is what makes
+the parser's job tractable — it works with typed tokens, not raw characters.
+
+**INDENT/DEDENT algorithm — step by step walkthrough**
+```
+Source:          "if x:\n    y = 1\n    z = 2\nw = 3\n"
+indent_stack:    [0]
+
+Line 1: "if x:"        indent=0, stack[-1]=0 → same level → no INDENT/DEDENT
+    tokens: IF, NAME:x, COLON, NEWLINE
+
+Line 2: "    y = 1"    indent=4, stack[-1]=0 → 4>0 → push 4, emit INDENT
+    stack: [0, 4]
+    tokens: INDENT, NAME:y, ASSIGN, NUMBER:1, NEWLINE
+
+Line 3: "    z = 2"    indent=4, stack[-1]=4 → same level → no change
+    tokens: NAME:z, ASSIGN, NUMBER:2, NEWLINE
+
+Line 4: "w = 3"        indent=0, stack[-1]=4 → 0<4 → pop 4, emit DEDENT
+    stack: [0]
+    tokens: DEDENT, NAME:w, ASSIGN, NUMBER:3, NEWLINE
+
+EOF: stack=[0] → only base level, no more DEDENTs needed
+    tokens: EOF
+```
+
+**Why the indent_stack starts at [0]**
+Column 0 represents "no indentation" — the leftmost position. All top-level code
+starts at column 0. The stack must always have at least one entry to compare against.
+Starting at [0] means the very first line of code doesn't trigger a false INDENT.
+
+**What happens at end-of-file with open blocks**
+If the source ends inside an indented block (e.g., last line is inside a function),
+the parser expects DEDENT tokens to close those blocks. Without EOF DEDENTs, the
+parser would think the function body never ended. `_close_indents()` pops all
+remaining levels from the indent stack, emitting one DEDENT per level.
+
+**Why reject mixed tabs and spaces**
+A tab might be 4 spaces or 8 spaces depending on the editor. The string
+`"\t    x"` has indent=5 in our counter but could look like indent=8+4=12 in some
+editors. This ambiguity makes it impossible to determine nesting reliably.
+CPython also rejects mixed tabs/spaces (TabError). We follow the same rule.
+
+**What is a bad dedent and why it is an error**
+```
+if x:
+    y = 1       ← indent 4
+  z = 2         ← indent 2 (not in stack!)
+```
+After popping 4, the stack has [0]. But the new indent is 2, not 0. This means
+the programmer used an indentation level that was never opened. It's like writing
+`}` in C without a matching `{`. Our lexer reports: "Inconsistent dedent".
+
+**Why CLexer does not need an indent stack**
+C uses explicit `{` and `}` for blocks. Whitespace (spaces, tabs, newlines) is
+meaningless between tokens — it's just a separator. The CLexer emits LBRACE and
+RBRACE tokens for `{` and `}`. The parser treats these exactly like the Python
+parser treats INDENT and DEDENT, but no stack tracking is needed.
+
+**Why CppLexer extends CLexer instead of being separate**
+C++ is a superset of C (almost). The tokenization logic is 95% identical.
+CppLexer only adds: `cout` keyword, `cin` keyword, `::` operator. By extending
+CLexer and overriding `get_keywords()` and `get_two_char_ops()`, CppLexer reuses
+all tokenization code without any duplication. This is the Template Method pattern:
+the base class defines the algorithm, subclasses customize specific steps.
+
+---
+
+## PHASE 3 — Parser
+[Agent fills this after Phase 3 completes]
+
+**What a parser does — from tokens to tree**
+[fill after phase 3]
+
+**What is recursive descent parsing**
+[fill after phase 3]
+
+**How operator precedence is handled (the grammar rule nesting trick)**
+[fill after phase 3]
+
+**How INDENT/DEDENT replace braces in python_parser**
+[fill after phase 3]
+
+**Why all three parsers produce the same AST node types**
+[fill after phase 3]
+
+**Error recovery — synchronisation tokens**
+[fill after phase 3]
+
+**How ForRangeStmt vs ForEachStmt is detected in the parser**
+[fill after phase 3]
+
+---
+
+## PHASE 4 — Semantic Analyzer
+[Agent fills this after Phase 4 completes]
+
+**What semantic analysis does that parsing cannot**
+[fill after phase 4]
+
+**What a symbol table is and why it is needed**
+[fill after phase 4]
+
+**What a scope stack is — full explanation with example**
+[fill after phase 4]
+
+**Two-pass analysis — why it is needed for Python source**
+[fill after phase 4]
+
+**Pass 1 — exactly what it collects and why**
+[fill after phase 4]
+
+**Pass 2 — full walkthrough**
+[fill after phase 4]
+
+**Type checking — how it works on BinaryOp nodes**
+[fill after phase 4]
+
+**Silent INT→FLOAT promotion — how it is implemented**
+[fill after phase 4]
+
+**ForEachStmt validation — what checks are needed**
+[fill after phase 4]
+
+---
+
+## PHASE 5 — IR Generator
+[Agent fills this after Phase 5 completes]
+
+**Why have an IR phase if the AST is already the IR**
+[fill after phase 5]
+
+**What to_dict() does and why it is needed**
+[fill after phase 5]
+
+**Why this is the checkpoint for target language selection**
+[fill after phase 5]
+
+**What integrity checking means in this context**
+[fill after phase 5]
+
+---
+
+## PHASE 6 — Code Generators
+[Agent fills this after Phase 6 completes]
+
+**What a code generator does — tree to text**
+[fill after phase 6]
+
+**How indent_level works in python_generator**
+[fill after phase 6]
+
+**Why python_generator omits type annotations**
+[fill after phase 6]
+
+**How build_format_string works in c_generator**
+[fill after phase 6]
+
+**Why #include is added automatically by c_generator**
+[fill after phase 6]
+
+**ForRangeStmt → C for loop — exact translation logic**
+[fill after phase 6]
+
+**ForEachStmt → C for loop — the _i counter trick**
+[fill after phase 6]
+
+**Why cpp_generator extends c_generator**
+[fill after phase 6]
+
+**Round-trip test — why Python→Python is the best first test**
+[fill after phase 6]
+
+---
+
+## PHASE 7 — Validator
+[Agent fills this after Phase 7 completes]
+
+**What dynamic validation means vs static validation**
+[fill after phase 7]
+
+**Why subprocess instead of exec() for all languages**
+[fill after phase 7]
+
+**How float comparison with tolerance works**
+[fill after phase 7]
+
+**How test inputs are passed as stdin**
+[fill after phase 7]
+
+**What has_input() does and why it is needed before running**
+[fill after phase 7]
+
+---
+
+## PHASE 8 — Web UI
+[Agent fills this after Phase 8 completes]
+
+**Why Flask for the backend**
+[fill after phase 8]
+
+**The three routes — what each one does**
+[fill after phase 8]
+
+**Why single HTML file**
+[fill after phase 8]
+
+**How the modal system works (open/close/populate)**
+[fill after phase 8]
+
+**Why new compile wipes all state — the stale data problem**
+[fill after phase 8]
+
+**How the AST SVG graphical view is generated in the browser**
+[fill after phase 8]
+
+**How token pills are colored by type**
+[fill after phase 8]
+
+**The blocked phase state — how it is enforced in JS**
+[fill after phase 8]
+
+---
+
+## VIVA Q&A — General Questions
+
+### Q: What is the difference between a compiler and an interpreter?
+A compiler translates the entire source program to another form before execution.
+An interpreter executes the program line by line directly.
+Our transpiler is a compiler: it translates the whole program to the target
+language. The validator then runs the result — that is interpretation/execution,
+not part of the compiler itself.
+
+### Q: Why do you need all these phases? Can you go directly from source to target?
+You could write a Python→C converter that uses string manipulation and regex.
+It would break on any non-trivial program. The multi-phase approach builds a
+complete semantic model of the program first — the AST — so that code generation
+works from understood meaning, not from text patterns. This is why real compilers
+like GCC and Clang use the same pipeline.
+
+### Q: What is the time complexity of your compiler?
+Lexer: O(n) where n = characters in source
+Parser: O(n) where n = tokens (recursive descent on unambiguous grammar is linear)
+Semantic: O(n) where n = AST nodes
+Codegen: O(n) where n = AST nodes
+Total: O(n) — linear in source size. This is optimal.
+
+### Q: What would you add if you had more time?
+1. Optimization phase between IR and codegen (constant folding: 2+3 → 5 at compile time)
+2. Better error recovery in the parser (continue after errors to find more)
+3. Support for structs (would require extending ast_nodes and all generators)
+4. Type inference for function return types instead of requiring annotation
+
+### Q: Why does the validator actually run the code? Isn't that dangerous?
+The code runs in a subprocess with a timeout. It cannot access files outside
+the temp directory. For a demonstration compiler on trusted input this is
+acceptable. In a production system you would use sandboxing (Docker, seccomp).
+
+### Q: How does your compiler handle x = 5 followed by x = x + 3.14?
+Phase 3 (parser): first x=5 → VarDecl(x, UNKNOWN, Literal(5,INT))
+Phase 4 (semantic pass 2): 
+  - sees VarDecl → declares x as INT in symbol table
+  - sees AssignStmt x = x + 3.14 → resolves BinaryOp type → FLOAT
+  - x is INT but value is FLOAT → trigger silent promotion
+  - update symbol table: x type → FLOAT
+Phase 6 (codegen):
+  - C generator sees x is FLOAT → emits "float x = 5;" not "int x = 5;"
+  - This is correct: if x ends up float, it should be declared float in C
+
+### Q: What happens if the same variable name is used in two different functions?
+The scope stack handles this. Each function push a new scope dict.
+Variables are looked up from top of stack downward.
+Two functions each having local variable x: they live in different scope dicts,
+no conflict. Removing the scope stack and using a flat dict would cause false
+redeclaration errors for every shared variable name.
