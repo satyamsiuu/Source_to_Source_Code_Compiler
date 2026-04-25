@@ -6,8 +6,8 @@ STATUS_KEY: [ ]=not started  [~]=in progress  [x]=complete  [!]=blocked  [E]=has
 
 ---
 
-OVERALL: 3/9 phases complete
-LAST_COMPLETED_PHASE: Phase 2
+OVERALL: 4/9 phases complete
+LAST_COMPLETED_PHASE: Phase 3
 LAST_UPDATED: 2026-04-25
 
 ---
@@ -54,16 +54,16 @@ Completed: 2026-04-25
 ---
 
 ## PHASE 3 — Parser
-Status: [ ]  |  Depends: Phase 2
+Status: [x]  |  Depends: Phase 2
 Files:
-  [ ] parser/python_parser.py  target:400  actual:0
-  [ ] parser/c_parser.py       target:380  actual:0
-  [ ] parser/cpp_parser.py     target:110  actual:0
+  [x] parser/python_parser.py  target:400  actual:384
+  [x] parser/c_parser.py       target:380  actual:396
+  [x] parser/cpp_parser.py     target:110  actual:122
 Test:
   input:  tokens from "if x > 0:\n    return x\n"
   expect: Program containing IfStmt with BinaryOp and ReturnStmt
-Test result: PENDING
-Completed: —
+Test result: PASS ✅
+Completed: 2026-04-25
 
 ---
 
@@ -150,9 +150,9 @@ Completed: —
 | lexer/python_lexer.py         | 260    | 294    | ✅ done |
 | lexer/c_lexer.py              | 225    | 257    | ✅ done |
 | lexer/cpp_lexer.py            | 85     | 64     | ✅ done |
-| parser/python_parser.py       | 400    | 0      | pending |
-| parser/c_parser.py            | 380    | 0      | pending |
-| parser/cpp_parser.py          | 110    | 0      | pending |
+| parser/python_parser.py       | 400    | 384    | ✅ done |
+| parser/c_parser.py            | 380    | 396    | ✅ done |
+| parser/cpp_parser.py          | 110    | 122    | ✅ done |
 | semantic/analyzer.py          | 320    | 0      | pending |
 | ir/ir_generator.py            | 200    | 0      | pending |
 | codegen/python_generator.py   | 250    | 0      | pending |

@@ -312,28 +312,57 @@ the base class defines the algorithm, subclasses customize specific steps.
 ---
 
 ## PHASE 3 — Parser
-[Agent fills this after Phase 3 completes]
+Three parsers convert token streams to ASTs: PythonParser, CParser, CppParser.
+All produce the same language-neutral AST node types.
 
 **What a parser does — from tokens to tree**
-[fill after phase 3]
+The parser takes a flat list of tokens (from the lexer) and builds a TREE that
+represents the program's structure. `IF NAME:x GT NUMBER:0 COLON NEWLINE INDENT
+RETURN NAME:x NEWLINE DEDENT` becomes `IfStmt(BinaryOp(">", Var("x"), Literal(0)),
+[ReturnStmt(Var("x"))], [])`. The tree captures nesting: the ReturnStmt is INSIDE
+the IfStmt's body. This nesting is invisible in a flat token list.
 
 **What is recursive descent parsing**
-[fill after phase 3]
+Each grammar rule becomes a function. `_parse_if()` calls `_parse_expression()`
+for the condition, then `_parse_block()` for the body. `_parse_expression()` calls
+`_parse_comparison()`, which calls `_parse_addition()`, etc. This mutual recursion
+mirrors the grammar structure — hence "recursive descent". The parser "descends"
+through rule functions to build the tree bottom-up.
 
 **How operator precedence is handled (the grammar rule nesting trick)**
-[fill after phase 3]
+`2 + 3 * 4` must parse as `2 + (3 * 4)`, not `(2 + 3) * 4`. We achieve this by
+nesting functions: `_parse_addition` calls `_parse_multiplication` for its operands.
+Since multiplication is parsed DEEPER (bound TIGHTER), `3 * 4` becomes a single
+BinaryOp before addition ever sees it. The precedence chain is:
+`expression → or → and → not → comparison → addition → multiplication → unary → primary`
+Higher in the chain = lower precedence. Primary (literals, variables) = highest.
 
 **How INDENT/DEDENT replace braces in python_parser**
-[fill after phase 3]
+In `_parse_block()`, the Python parser does `_expect(INDENT)` then loops until
+`DEDENT`, then `_expect(DEDENT)`. The C parser does `_expect(LBRACE)` then loops
+until `RBRACE`, then `_expect(RBRACE)`. The logic is identical — only the delimiter
+tokens differ. This is why the lexer emits INDENT/DEDENT: it unifies the block
+structure so both parsers can use the same pattern.
 
 **Why all three parsers produce the same AST node types**
-[fill after phase 3]
+This is the KEY to transpilation. `def add(x,y): return x+y` (Python) and
+`int add(int x, int y) { return x+y; }` (C) look nothing alike syntactically,
+but both produce `FunctionDecl(name="add", params=[...], body=[ReturnStmt(...)])`.
+The generators then read this same AST and emit their target language. If each
+parser used different node types, you'd need N×M translation functions instead of
+N parsers + M generators.
 
 **Error recovery — synchronisation tokens**
-[fill after phase 3]
+When the parser encounters an unexpected token, it doesn't crash — it records a
+CompilerError and skips to a "synchronization point": NEWLINE (Python) or
+SEMICOLON (C). This lets the parser continue and find MORE errors in the rest
+of the file. Without recovery, the first syntax error would hide all others.
 
 **How ForRangeStmt vs ForEachStmt is detected in the parser**
-[fill after phase 3]
+In Python: `for NAME in ...`. If RANGE follows IN → ForRangeStmt (numeric bounds).
+If NAME follows IN → ForEachStmt (iterate over array). The parser peeks at the
+token after IN to decide. In C: all `for(;;)` loops → ForRangeStmt (C has no
+native for-each). In C++: CppParser inherits C's for-loop handling.
 
 ---
 

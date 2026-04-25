@@ -9,12 +9,12 @@
 
 ## LAST_PHASE_DIFF
 ```
-phase:    Phase 2 — Lexer
+phase:    Phase 3 — Parser
 status:   COMPLETE
-added:    lexer/python_lexer.py (294L), lexer/c_lexer.py (257L), lexer/cpp_lexer.py (64L)
+added:    parser/python_parser.py (384L), parser/c_parser.py (396L), parser/cpp_parser.py (122L)
 changed:  —
 deleted:  —
-next:     Phase 3 → write parser/python_parser.py, c_parser.py, cpp_parser.py
+next:     Phase 4 → write semantic/analyzer.py
 WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Never auto-proceed.
 ```
 
@@ -24,8 +24,8 @@ WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Ne
 ```
 project:      source-to-source compiler Python↔C↔C++
 stack:        Python + Flask + single HTML file
-phases_done:  3/9
-files_exist:  7  (+ python_lexer.py, c_lexer.py, cpp_lexer.py)
+phases_done:  4/9
+files_exist:  10  (+ python_parser.py, c_parser.py, cpp_parser.py)
 
 key_decisions:
   ir=neutral_AST        (not TAC — preserves structure for readable output)
@@ -108,7 +108,7 @@ PythonParser.parse(tokens) → Program  [INDENT='{', DEDENT='}']
 CParser.parse(tokens)      → Program  [LBRACE='{', RBRACE='}']
 CppParser(CParser):        overrides cout→PrintStmt, cin→InputStmt
 output: Program(ast_nodes) — same node types regardless of source language
-status: PENDING
+status: COMPLETE ✅ — all 3 parsers produce correct AST, canonical test verified
 ```
 
 ### PHASE_4 [PENDING]
