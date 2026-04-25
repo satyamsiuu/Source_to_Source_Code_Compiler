@@ -9,12 +9,12 @@
 
 ## LAST_PHASE_DIFF
 ```
-phase:    Phase 3 — Parser
+phase:    Phase 4 — Semantic Analyzer
 status:   COMPLETE
-added:    parser/python_parser.py (384L), parser/c_parser.py (396L), parser/cpp_parser.py (122L)
+added:    semantic/analyzer.py (365L)
 changed:  —
 deleted:  —
-next:     Phase 4 → write semantic/analyzer.py
+next:     Phase 5 → write ir/ir_generator.py
 WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Never auto-proceed.
 ```
 
@@ -24,8 +24,8 @@ WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Ne
 ```
 project:      source-to-source compiler Python↔C↔C++
 stack:        Python + Flask + single HTML file
-phases_done:  4/9
-files_exist:  10  (+ python_parser.py, c_parser.py, cpp_parser.py)
+phases_done:  5/9
+files_exist:  11  (+ semantic/analyzer.py)
 
 key_decisions:
   ir=neutral_AST        (not TAC — preserves structure for readable output)
@@ -126,7 +126,7 @@ errors caught: undeclared_var, redeclaration, type_mismatch,
                wrong_arg_count, return_type_mismatch,
                array_index_not_int, array_oob, void_in_expr,
                foreach_on_non_array
-status: PENDING
+status: COMPLETE ✅ — both tests passed (PASS: symbol table correct, FAIL: 2 errors caught)
 ```
 
 ### PHASE_5 [PENDING]

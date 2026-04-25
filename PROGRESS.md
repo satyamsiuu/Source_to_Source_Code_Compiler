@@ -6,8 +6,8 @@ STATUS_KEY: [ ]=not started  [~]=in progress  [x]=complete  [!]=blocked  [E]=has
 
 ---
 
-OVERALL: 4/9 phases complete
-LAST_COMPLETED_PHASE: Phase 3
+OVERALL: 5/9 phases complete
+LAST_COMPLETED_PHASE: Phase 4
 LAST_UPDATED: 2026-04-25
 
 ---
@@ -68,17 +68,17 @@ Completed: 2026-04-25
 ---
 
 ## PHASE 4 — Semantic Analyzer
-Status: [ ]  |  Depends: Phase 3
+Status: [x]  |  Depends: Phase 3
 Files:
-  [ ] semantic/analyzer.py  target:320  actual:0
+  [x] semantic/analyzer.py  target:320  actual:365
 Test PASS:
   input:  "def add(x,y):\n    return x+y\nresult=add(3,4)\nprint(result)\n"
   expect: no errors, symbol table has add/x/y/result
 Test FAIL (must catch 2 errors):
   input:  "print(z)\nx=1\nx=2\n"
   expect: [undeclared 'z', redeclaration 'x']
-Test result: PENDING
-Completed: —
+Test result: PASS ✅
+Completed: 2026-04-25
 
 ---
 
@@ -153,7 +153,7 @@ Completed: —
 | parser/python_parser.py       | 400    | 384    | ✅ done |
 | parser/c_parser.py            | 380    | 396    | ✅ done |
 | parser/cpp_parser.py          | 110    | 122    | ✅ done |
-| semantic/analyzer.py          | 320    | 0      | pending |
+| semantic/analyzer.py          | 320    | 365    | ✅ done |
 | ir/ir_generator.py            | 200    | 0      | pending |
 | codegen/python_generator.py   | 250    | 0      | pending |
 | codegen/c_generator.py        | 280    | 0      | pending |

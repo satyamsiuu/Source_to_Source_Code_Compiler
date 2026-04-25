@@ -367,34 +367,113 @@ native for-each). In C++: CppParser inherits C's for-loop handling.
 ---
 
 ## PHASE 4 — Semantic Analyzer
-[Agent fills this after Phase 4 completes]
+The semantic analyzer walks the AST and checks that the program **means** something
+valid — not just that it is syntactically correct. File: `semantic/analyzer.py` (365 lines).
 
 **What semantic analysis does that parsing cannot**
-[fill after phase 4]
+The parser checks STRUCTURE: is `if x > 0:` followed by an indented block? Yes → valid
+syntax. But the parser never asks: "was `x` declared?" or "is `x` a number that can be
+compared with `>`?" Those are MEANING questions. `print(z)` parses perfectly — it's a
+PrintStmt with a Var("z"). But if z was never declared, the program will crash at runtime.
+The semantic analyzer catches this at compile time. It also checks: are function arguments
+the right count and type? Does a return statement match the function's return type? Is an
+array index an integer? These are all questions about meaning, not structure.
 
 **What a symbol table is and why it is needed**
-[fill after phase 4]
+A symbol table is a dictionary mapping variable/function names to their metadata:
+`{"x": {"kind": "var", "type": INT, "line": 3}}`. Every time a VarDecl is analyzed,
+the name is added to the symbol table. Every time a Var is used in an expression, the
+analyzer looks it up. If it's not found → "Undeclared variable" error. If it IS found,
+the analyzer knows its type and can check operations on it. Without a symbol table,
+the analyzer would have no memory of what was declared where. The flat `symbol_table`
+dict is also returned to the UI for display in the Semantic modal.
 
 **What a scope stack is — full explanation with example**
-[fill after phase 4]
+A scope stack is a `list[dict]` where each dict represents a scope level. Index 0 is the
+global scope. When entering a function, a new dict is pushed; when exiting, it's popped.
+```
+scope_stack = [
+  {"add": {kind:func, ...}},          ← global scope (index 0)
+  {"x": {kind:var, type:INT}, "y":..} ← function scope (index 1, inside add())
+]
+```
+Lookup searches from top to bottom: `_lookup("x")` checks index 1 first, finds it.
+`_lookup("add")` checks index 1, not found, checks index 0, found. This means local
+variables shadow globals with the same name — exactly like Python and C. When we
+`_exit_scope()`, the function dict is popped, and x/y are no longer visible.
+For-loops also get their own scope: the loop variable is declared inside it, so it
+doesn't leak into the enclosing scope.
 
 **Two-pass analysis — why it is needed for Python source**
-[fill after phase 4]
+In Python, you can call a function before its definition:
+```python
+result = add(3, 4)    # line 1 — add() not defined yet
+def add(x, y):        # line 2 — defined here
+    return x + y
+```
+In a single pass, when the analyzer reaches line 1, `add` is not in the symbol table
+→ "Undeclared function" error. But the program is valid Python! Pass 1 solves this by
+scanning ALL FunctionDecl nodes first, registering their signatures (name + param count)
+in the global scope. Then Pass 2 walks the full AST — when it encounters `add(3, 4)`,
+the function is already registered. C doesn't need this: C mandates define-before-use,
+so a single pass suffices (and is what real C compilers do).
 
 **Pass 1 — exactly what it collects and why**
-[fill after phase 4]
+Pass 1 (`_pass1`) iterates `program.functions` only. For each FunctionDecl, it:
+1. Checks for duplicate function names (error if already registered)
+2. Extracts param info: `[(name, data_type)]` — types may be UNKNOWN for Python source
+3. Creates a func entry dict with kind, params, return_type, and a reference to the
+   AST node (`"decl": func`) for on-demand body analysis later
+4. Stores in `self.functions` (quick lookup) and `self.scope_stack[0]` (global scope)
+5. Records in `self.symbol_table` for UI display
+This is intentionally lightweight — no body analysis, no type inference. Just signatures.
 
 **Pass 2 — full walkthrough**
-[fill after phase 4]
+Pass 2 (`_pass2`) does two things in order:
+1. Analyzes global statements first. When a function call like `add(3, 4)` is encountered,
+   `_resolve_call` infers param types from the arguments (x=INT, y=INT), updates the
+   function registry, and triggers ON-DEMAND body analysis of `add()`. This determines
+   the return type (INT), which is used to type the variable `result`.
+2. Analyzes any function bodies not yet triggered by calls (e.g., functions never called
+   in global scope). These are analyzed with whatever param types are known.
+The on-demand approach solves the chicken-and-egg problem: we need arg types to know
+param types, and we need param types to know the return type. By analyzing the call site
+first, then the function body, we get both.
 
 **Type checking — how it works on BinaryOp nodes**
-[fill after phase 4]
+`_resolve_binop` determines the result type of `left op right`:
+1. Recursively resolve left's type and right's type
+2. If op is a comparison (`==`, `<`, etc.) or logical (`and`, `or`) → result is BOOL
+3. Otherwise (arithmetic: `+`, `-`, `*`, `/`) → apply promotion via `_promote()`:
+   - INT + INT → INT
+   - INT + FLOAT → FLOAT (either side being FLOAT promotes the result)
+   - FLOAT + FLOAT → FLOAT
+   - UNKNOWN + X → X (best-guess: use the known type)
+This is recursive: `a * b + c` → BinaryOp('+', BinaryOp('*', a, b), c). The inner
+`*` resolves first, its result type feeds into the outer `+`.
 
 **Silent INT→FLOAT promotion — how it is implemented**
-[fill after phase 4]
+In `_do_assign`, when assigning a FLOAT value to an INT variable:
+```python
+if sym["type"] == DataType.INT and vt == DataType.FLOAT:
+    sym["type"] = DataType.FLOAT  # update the variable's type in scope
+```
+The variable's type is UPGRADED in the scope dict. No error is raised. This matches
+Python semantics: `x = 5; x = x + 3.14` is valid — x becomes a float. The updated
+type persists in the symbol table, so when the C generator later emits code for x,
+it uses `float x = 5;` instead of `int x = 5;`. The reverse (FLOAT var, INT value)
+is also allowed silently because INT values fit in FLOAT variables.
 
 **ForEachStmt validation — what checks are needed**
-[fill after phase 4]
+`_do_for_each` performs three checks:
+1. The array name must exist in scope: `_lookup(node.array_name)` — if None, error
+   "Undeclared array"
+2. The symbol must actually be an array: `sym["kind"] != "array"` — if it's a regular
+   variable, error "For-each only supported over declared arrays"
+3. The loop variable gets the array's element type: if `arr` is `array(int, 5)`, then
+   `x` in `for x in arr` is declared as INT in the loop's scope
+The loop body runs in its own scope (pushed before, popped after), so the loop variable
+doesn't leak into the enclosing scope.
 
 ---
 
