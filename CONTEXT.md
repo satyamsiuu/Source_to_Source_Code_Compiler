@@ -9,12 +9,12 @@
 
 ## LAST_PHASE_DIFF
 ```
-phase:    Phase 4 — Semantic Analyzer
+phase:    Phase 5 — IR Generator
 status:   COMPLETE
-added:    semantic/analyzer.py (365L)
+added:    ir/ir_generator.py (294L)
 changed:  —
 deleted:  —
-next:     Phase 5 → write ir/ir_generator.py
+next:     Phase 6 → write codegen/python_generator.py, c_generator.py, cpp_generator.py
 WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Never auto-proceed.
 ```
 
@@ -24,8 +24,8 @@ WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Ne
 ```
 project:      source-to-source compiler Python↔C↔C++
 stack:        Python + Flask + single HTML file
-phases_done:  5/9
-files_exist:  11  (+ semantic/analyzer.py)
+phases_done:  6/9
+files_exist:  12  (+ ir/ir_generator.py)
 
 key_decisions:
   ir=neutral_AST        (not TAC — preserves structure for readable output)
@@ -129,16 +129,17 @@ errors caught: undeclared_var, redeclaration, type_mismatch,
 status: COMPLETE ✅ — both tests passed (PASS: symbol table correct, FAIL: 2 errors caught)
 ```
 
-### PHASE_5 [PENDING]
+### PHASE_5 [COMPLETE]
 ```
-file: ir/ir_generator.py
+file: ir/ir_generator.py (294L)
 class: IRGenerator
-generate(program) → Program  [integrity check, no transformation]
+generate(program) → Program  [integrity check, no transformation — returns same object]
 to_dict(program)  → dict     [JSON-serialisable for UI display]
   format: {"node":"FunctionDecl","name":"add","params":[...],"body":[...]}
+validation: checks every node type has required fields (name, condition, etc.)
 this phase = checkpoint: analysis done, codegen not started
 user picks target language after this phase in UI
-status: PENDING
+status: COMPLETE ✅ — generate() returns same Program, to_dict() JSON round-trips
 ```
 
 ### PHASE_6 [PENDING]

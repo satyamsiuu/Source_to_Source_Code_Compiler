@@ -6,8 +6,8 @@ STATUS_KEY: [ ]=not started  [~]=in progress  [x]=complete  [!]=blocked  [E]=has
 
 ---
 
-OVERALL: 5/9 phases complete
-LAST_COMPLETED_PHASE: Phase 4
+OVERALL: 6/9 phases complete
+LAST_COMPLETED_PHASE: Phase 5
 LAST_UPDATED: 2026-04-25
 
 ---
@@ -83,14 +83,14 @@ Completed: 2026-04-25
 ---
 
 ## PHASE 5 — IR Generator
-Status: [ ]  |  Depends: Phase 4
+Status: [x]  |  Depends: Phase 4
 Files:
-  [ ] ir/ir_generator.py  target:200  actual:0
+  [x] ir/ir_generator.py  target:200  actual:294
 Test:
   input:  validated Program from Phase 4 PASS test
   expect: ir.generate() returns same Program, ir.to_dict() returns valid dict
-Test result: PENDING
-Completed: —
+Test result: PASS ✅
+Completed: 2026-04-25
 
 ---
 
@@ -154,7 +154,7 @@ Completed: —
 | parser/c_parser.py            | 380    | 396    | ✅ done |
 | parser/cpp_parser.py          | 110    | 122    | ✅ done |
 | semantic/analyzer.py          | 320    | 365    | ✅ done |
-| ir/ir_generator.py            | 200    | 0      | pending |
+| ir/ir_generator.py            | 200    | 294    | ✅ done |
 | codegen/python_generator.py   | 250    | 0      | pending |
 | codegen/c_generator.py        | 280    | 0      | pending |
 | codegen/cpp_generator.py      | 110    | 0      | pending |

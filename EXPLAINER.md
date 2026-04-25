@@ -478,19 +478,75 @@ doesn't leak into the enclosing scope.
 ---
 
 ## PHASE 5 — IR Generator
-[Agent fills this after Phase 5 completes]
+The IR Generator validates the AST's structural integrity and converts it to a
+JSON-serialisable dictionary for the frontend. File: `ir/ir_generator.py` (294 lines).
 
 **Why have an IR phase if the AST is already the IR**
-[fill after phase 5]
+In production compilers, the IR is a separate representation (TAC, SSA, LLVM IR) that
+sits between the frontend and backend. Our IR is the AST itself — a "neutral AST".
+Why? TAC would flatten `return x + y` into `t1 = x + y; return t1`, destroying the
+program's structure. LLVM IR requires SSA form and the LLVM toolchain — a black box
+that can't be explained in a viva. Our AST preserves the program's high-level structure
+so that code generators produce readable, idiomatic output. The trade-off: no
+machine-level optimizations (constant folding, dead code elimination). This is
+acceptable because optimization is out of scope for this transpiler.
+
+So why have this phase at all? Three reasons:
+1. **Integrity gate**: It verifies the AST is well-formed before codegen processes it.
+   If the semantic analyzer has a bug that produces a FunctionDecl with no name, or a
+   BinaryOp with a missing left operand, this phase catches it with a clear error.
+2. **Serialisation**: `to_dict()` converts the AST to JSON for the UI's IR modal.
+3. **Architectural boundary**: Everything before Phase 5 is source-language-dependent.
+   Everything after is target-language-dependent. This phase marks the transition point.
 
 **What to_dict() does and why it is needed**
-[fill after phase 5]
+`to_dict()` recursively walks the AST and converts each node to a JSON-serialisable
+Python dict. Each node becomes `{"node": "TypeName", ...fields...}`. DataType enum
+values are converted to strings via `.value` (e.g., `DataType.INT` → `"int"`), because
+JSON cannot encode Python Enum objects directly. List fields (like `body`, `params`)
+become JSON arrays. Optional fields that are None become JSON `null`.
+
+The frontend receives this dict as JSON in the `/compile` API response. The IR modal
+displays it as a coloured node dump — the user can inspect the exact tree structure
+that will be fed to the code generator. This transparency is valuable for debugging
+(did the parser build the right tree?) and for demonstration (you can show the
+examiner exactly what the compiler understood from the source code).
+
+Without `to_dict()`, the UI would have no way to display the internal representation.
+Python dataclass objects can't be sent over HTTP — they must be serialised to JSON first.
 
 **Why this is the checkpoint for target language selection**
-[fill after phase 5]
+In the UI, the user writes source code, selects the source language, and clicks
+"Compile". This runs Phases 1–5: preprocess, lex, parse, analyse, generate IR.
+All of these phases are SOURCE-dependent — they interpret the code's structure and
+semantics according to the source language's rules. Only after all five phases
+succeed does the user choose a TARGET language (Python, C, or C++) and click
+"Generate". This triggers Phase 6 (codegen), which is TARGET-dependent.
+
+The IR phase is the pivot point. If it passes, the compiler has fully understood the
+source program. If it fails, something went wrong in the frontend pipeline and codegen
+should not run on a broken tree. This is why the frontend shows the IR phase result
+before enabling the target language selector.
 
 **What integrity checking means in this context**
-[fill after phase 5]
+Integrity checking verifies that every AST node has its required fields populated
+correctly. The semantic analyzer (Phase 4) already checked semantics (types, scopes,
+declarations), but it didn't check whether the AST's STRUCTURE is valid. Examples
+of structural integrity violations:
+- A FunctionDecl with an empty `name` field (the parser should have set it)
+- A BinaryOp with `op=""` (should be "+", "-", etc.)
+- An IfStmt with `condition=None` (every if needs a condition)
+- A ForRangeStmt with no `stop` expression (range needs an upper bound)
+- A non-ASTNode object inside the tree (e.g., a raw string instead of a Var node)
+
+The integrity checker walks every node recursively, using the same isinstance-dispatch
+pattern as the semantic analyzer. For each node type, it checks specific required
+fields. All violations are collected into the `errors` list, and a CompilerErrorList
+is raised once at the end — following the project-wide collect-then-raise pattern.
+
+The `generate()` method returns the SAME Program object it received. It does not
+transform or copy the AST. This is intentional: our IR IS the AST. The only purpose
+of `generate()` is validation, not transformation.
 
 ---
 
