@@ -39,23 +39,11 @@ graph LR
 ## 📂 Repository Structure
 
 ```text
-├── transpiler/
-│   ├── ast_nodes.py          # Language-neutral AST models (dataclasses)
-│   ├── errors.py             # Unified Error and Phase tracking
-│   ├── main.py               # Flask application and pipeline coordinator
-│   ├── preprocessor/         # Phase 1: Comment stripping
-│   ├── lexer/                # Phase 2: Tokenization (Python, C, C++)
-│   ├── parser/               # Phase 3: Recursive descent AST generation
-│   ├── semantic/             # Phase 4: Type checking and symbol tables
-│   ├── ir/                   # Phase 5: Intermediate Representation (JSON AST)
-│   ├── codegen/              # Phase 6: Emitting target code
-│   ├── validator/            # Phase 7: Subprocess execution and output diffing
-│   ├── visualizer/           # AST Tree visualizer generators
-│   └── frontend/             # Single Page App UI (HTML/CSS/JS)
-├── testprograms/             # Suite of test code spanning C, C++, and Python
-├── PROGRESS.md               # Build phase tracker and line-count metrics
-├── requirements.txt          # Python dependencies
-└── README.md                 # Project documentation
+├── transpiler/          # Core compiler source code
+├── testprograms/        # Comprehensive suite of test cases (Python, C, C++)
+├── documentation/       # Project documentation (EXPLANATION.md, PROGRESS.md)
+├── requirements.txt     # Python dependencies
+└── README.md            # This file
 ```
 
 ## 🛠️ Tech Stack
@@ -65,7 +53,7 @@ graph LR
 *   **Frontend**: Vanilla HTML5, CSS3, JavaScript.
 *   **System Dependencies**: `gcc` and `g++` (required for the Validator phase).
 
-## ⚙️ Installation & Setup
+## ⚙️ Installation & Running the Project
 
 ### Prerequisites
 
@@ -73,32 +61,36 @@ graph LR
 *   GCC (for compiling and validating C target code)
 *   G++ (for compiling and validating C++ target code)
 
-### Instructions
+### Execution Steps
 
-1.  **Clone the repository:**
+1.  **Clone and Navigate:**
     ```bash
     git clone https://github.com/your-username/source-to-source-code-compiler.git
     cd source-to-source-code-compiler
     ```
 
-2.  **Create and activate a virtual environment (optional but recommended):**
+2.  **Environment Setup (Recommended):**
     ```bash
     python3 -m venv venv
     source venv/bin/activate  # On Windows: venv\Scripts\activate
     ```
 
-3.  **Install dependencies:**
+3.  **Install Dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
 
-4.  **Run the application:**
+4.  **Start the Compiler Server:**
     ```bash
     python transpiler/main.py
     ```
 
-5.  **Access the UI:**
-    Open your browser and navigate to `http://localhost:5000`
+5.  **Use the Web Interface:**
+    Open your browser to `http://localhost:5000`. You can:
+    *   **Type or Paste code** into the editor.
+    *   **Load Test Programs**: Browse the `testprograms/` directory to find samples to copy-paste.
+    *   **Run Pipeline**: Click "Compile" to watch the code go through Lexing, Parsing, and Semantic Analysis.
+    *   **Translate & Validate**: Choose a target language (C or C++) and click "Validate" to check the behavioral match.
 
 ## 🧠 How It Works
 
