@@ -210,6 +210,11 @@ class PythonParser:
             self._advance()
             index = self._parse_expression()
             self._expect(TokenType.RBRACKET); self._expect(TokenType.ASSIGN)
+            if (self._current().type in (TokenType.INT_KW, TokenType.FLOAT_KW)
+                    and self._peek().type == TokenType.LPAREN
+                    and self._peek(2).type == TokenType.INPUT):
+                target_node = ArrayAccess(name=name, index=index, line=line)
+                return self._parse_input_stmt(target_node, line)
             value = self._parse_expression()
             self._match(TokenType.NEWLINE)
             return ArrayAssign(name=name, index=index, value=value, line=line)
@@ -248,15 +253,25 @@ class PythonParser:
         return ArrayDecl(name=name, data_type=dtype, size=size, line=line)
 
     def _parse_array_literal(self, name, line):
-        """[expr, ...] → ArrayDecl with elements"""
+        """[expr, ...] → ArrayDecl with elements
+           [0] * n     → ArrayDecl with size n"""
         self._advance()  # [
         if self._current().type == TokenType.RBRACKET:
-            self.errors.append(CompilerError(Phase.PARSER,
-                "Use array(type, size) syntax for empty array declaration", line))
-            self._advance(); self._match(TokenType.NEWLINE)
-            return ArrayDecl(name=name, line=line)
+            self._advance()
+            self._match(TokenType.NEWLINE)
+            return ArrayDecl(name=name, data_type=DataType.UNKNOWN, size=0, line=line)
+        
         elements = self._parse_args()
-        self._expect(TokenType.RBRACKET); self._match(TokenType.NEWLINE)
+        self._expect(TokenType.RBRACKET)
+        
+        if self._match(TokenType.STAR):
+            size_expr = self._parse_expression()
+            self._match(TokenType.NEWLINE)
+            size = size_expr.value if hasattr(size_expr, "value") else size_expr.name if hasattr(size_expr, "name") else size_expr
+            dtype = elements[0].data_type if elements and hasattr(elements[0], "data_type") else DataType.INT
+            return ArrayDecl(name=name, data_type=dtype, size=size, line=line)
+
+        self._match(TokenType.NEWLINE)
         return ArrayDecl(name=name, data_type=DataType.UNKNOWN,
                          size=len(elements), elements=elements, line=line)
 
@@ -325,7 +340,7 @@ class PythonParser:
 
     def _parse_multiplication(self):
         left = self._parse_unary()
-        while self._current().type in (TokenType.STAR, TokenType.SLASH):
+        while self._current().type in (TokenType.STAR, TokenType.SLASH, TokenType.MODULO):
             op = self._advance()
             left = BinaryOp(op=op.value, left=left, right=self._parse_unary(), line=op.line)
         return left

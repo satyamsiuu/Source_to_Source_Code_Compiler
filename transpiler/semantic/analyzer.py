@@ -280,9 +280,19 @@ class SemanticAnalyzer:
                     "Cannot print void expression", node.line))
 
     def _do_input(self, node):
-        sym = self._lookup(node.target)
+        if hasattr(node.target, "name"):
+            target_name = node.target.name
+            if type(node.target).__name__ == "ArrayAccess":
+                self._resolve_type(node.target.index)
+        else:
+            target_name = str(node.target)
+            
+        sym = self._lookup(target_name)
         if sym is None:
-            self._declare(node.target, {"kind": "var", "type": node.data_type}, node.line)
+            self._declare(target_name, {"kind": "var", "type": node.data_type}, node.line)
+        else:
+            if node.data_type == DataType.UNKNOWN:
+                node.data_type = sym["type"]
 
     # ── Expression type resolution ────────────────────────────────────
 
@@ -349,6 +359,10 @@ class SemanticAnalyzer:
     def _resolve_binop(self, node) -> DataType:
         lt = self._resolve_type(node.left)
         rt = self._resolve_type(node.right)
+        if DataType.STR in (lt, rt):
+            self.errors.append(CompilerError(Phase.SEMANTIC,
+                "String operations are not supported", getattr(node, 'line', 0)))
+            return DataType.STR
         if node.op in ("==", "!=", "<", ">", "<=", ">=", "and", "or"):
             return DataType.BOOL
         return self._promote(lt, rt)

@@ -108,15 +108,21 @@ class CppParser(CParser):
         return PrintStmt(values=values, line=line)
 
     def _parse_cin(self) -> InputStmt:
-        """cin >> name; → InputStmt(target=name, data_type=UNKNOWN)
-
-        The >> operator is tokenized as two GT tokens.
-        Type will be resolved by the semantic analyzer from prior declaration.
-        """
+        """cin >> target; → InputStmt"""
         line = self._advance().line  # consume CIN
         # Expect >> (two GT tokens)
         self._expect(TokenType.GT)
         self._expect(TokenType.GT)
-        target = self._expect(TokenType.NAME).value
+        
+        # Use _parse_addition to ensure it evaluates arrays (like arr[i])
+        # but naturally stops evaluating if it sees further << or >> 
+        target = self._parse_addition()
+        
         self._expect(TokenType.SEMICOLON)
+        
+        try:
+            from transpiler.ast_nodes import InputStmt, DataType
+        except ModuleNotFoundError:
+            from ast_nodes import InputStmt, DataType
+            
         return InputStmt(target=target, data_type=DataType.UNKNOWN, line=line)

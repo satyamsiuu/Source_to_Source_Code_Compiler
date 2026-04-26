@@ -49,7 +49,7 @@ TWO_CHAR_OPS = {
 # Single-character operators and delimiters
 ONE_CHAR_OPS = {
     "+": TokenType.PLUS, "-": TokenType.MINUS,
-    "*": TokenType.STAR, "/": TokenType.SLASH,
+    "*": TokenType.STAR, "/": TokenType.SLASH, "%": TokenType.MODULO,
     "<": TokenType.LT, ">": TokenType.GT, "=": TokenType.ASSIGN,
     "(": TokenType.LPAREN, ")": TokenType.RPAREN,
     "[": TokenType.LBRACKET, "]": TokenType.RBRACKET,

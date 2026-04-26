@@ -35,15 +35,20 @@ class CppGenerator(CGenerator):
         self.lines.append("")
 
     def _gen_print(self, node: PrintStmt):
-        """cout << v1 << " " << v2 << endl;"""
+        """cout << v1 << " x " << v2 << endl;
+        Handles interleaved Literal(STR) for format strings."""
         if not node.values:
             self._emit("cout << endl;")
             return
         parts = []
         for i, v in enumerate(node.values):
-            parts.append(f"<< {self._expr(v)}")
-            if i < len(node.values) - 1:  # separator between values
-                parts.append('<< " "')
+            if isinstance(v, Literal) and v.data_type == DataType.STR:
+                parts.append(f'<< "{v.value}"')
+            else:
+                parts.append(f"<< {self._expr(v)}")
+            # Add separator between values only when separator is not empty
+            if node.separator and i < len(node.values) - 1:
+                parts.append(f'<< "{node.separator}"')
         parts.append("<< endl")
         self._emit(f"cout {' '.join(parts)};")
 
@@ -51,4 +56,11 @@ class CppGenerator(CGenerator):
         """cout << prompt; cin >> target;"""
         if node.prompt:
             self._emit(f'cout << "{node.prompt}";')
-        self._emit(f"cin >> {node.target};")
+        tgt = self._expr(node.target) if hasattr(node.target, "line") else node.target
+        # Auto-declare simple vars if unseen
+        if isinstance(tgt, str) and "[" not in tgt and tgt not in self._declared:
+            self._declared.add(tgt)
+            self._var_types[tgt] = node.data_type
+            self._emit(f"{self._type_str(node.data_type)} {tgt};")
+            
+        self._emit(f"cin >> {tgt};")

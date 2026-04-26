@@ -50,6 +50,8 @@ class CGenerator:
         self.indent_level = 0
         self.lines = []
         self.symbol_table = {}  # tracks array sizes + types for ForEachStmt
+        self._declared = set()  # tracks already-declared vars
+        self._var_types = {}    # tracks var name → DataType for printf format
         self._emit_preamble()
         # Emit all non-main functions
         for func in program.functions:
@@ -163,6 +165,13 @@ class CGenerator:
 
     def _gen_var_decl(self, node: VarDecl):
         t = self._type_str(node.data_type)
+        # If already declared, emit assignment (not redeclaration)
+        if node.name in self._declared:
+            if node.value is not None:
+                self._emit(f"{node.name} = {self._expr(node.value)};")
+            return
+        self._declared.add(node.name)
+        self._var_types[node.name] = node.data_type
         if node.value is not None:
             self._emit(f"{t} {node.name} = {self._expr(node.value)};")
         else:
@@ -233,32 +242,47 @@ class CGenerator:
             self._emit("return;")
 
     def _gen_print(self, node: PrintStmt):
-        """printf(format_string, args...) with dynamic format string."""
-        fmt_parts, args = [], []
-        for v in node.values:
-            dt = self._infer_type(v)
-            fmt_parts.append(FMT_SPEC.get(dt, "%d"))
-            args.append(self._expr(v))
-        fmt = " ".join(fmt_parts) + "\\n"
+        """printf(format_string, args...) with dynamic format string.
+        Handles interleaved Literal(STR) nodes from format string parsing."""
+        fmt_str, args = "", []
+        for i, v in enumerate(node.values):
+            if isinstance(v, Literal) and v.data_type == DataType.STR:
+                # String literal goes directly into format string
+                fmt_str += v.value
+            else:
+                dt = self._infer_type(v)
+                fmt_str += FMT_SPEC.get(dt, "%d")
+                args.append(self._expr(v))
+            if i < len(node.values) - 1:
+                fmt_str += node.separator
+        # Add newline
+        fmt_str += "\\n"
         if args:
             arg_str = ", ".join(args)
-            self._emit(f'printf("{fmt}", {arg_str});')
+            self._emit(f'printf("{fmt_str}", {arg_str});')
         else:
-            self._emit(f'printf("{fmt}");')
+            self._emit(f'printf("{fmt_str}");')
 
     def _gen_input(self, node: InputStmt):
         """scanf(format, &target)"""
         fmt = FMT_SPEC.get(node.data_type, "%d")
         if node.prompt:
             self._emit(f'printf("{node.prompt}");')
-        self._emit(f'scanf("{fmt}", &{node.target});')
+        tgt = self._expr(node.target) if hasattr(node.target, "line") else node.target
+        # Auto-declare simple vars if unseen
+        if isinstance(tgt, str) and "[" not in tgt and tgt not in self._declared:
+            self._declared.add(tgt)
+            self._var_types[tgt] = node.data_type
+            self._emit(f"{self._type_str(node.data_type)} {tgt};")
+            
+        self._emit(f'scanf("{fmt}", &{tgt});')
 
     def _infer_type(self, node) -> DataType:
         """Best-effort type inference for printf format string generation."""
         if isinstance(node, Literal): return node.data_type
         if isinstance(node, Var):
-            # Check symbol table from semantic analysis (stored in node or lookup)
-            return DataType.INT  # fallback
+            # Look up type from tracked var declarations
+            return self._var_types.get(node.name, DataType.INT)
         if isinstance(node, BinaryOp):
             if node.op in ("==", "!=", "<", ">", "<=", ">=", "and", "or"):
                 return DataType.BOOL

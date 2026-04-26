@@ -73,6 +73,7 @@ class TokenType(Enum):
     MINUS = auto()      # -
     STAR = auto()       # *
     SLASH = auto()      # /
+    MODULO = auto()     # %
     EQ = auto()         # ==
     NEQ = auto()        # !=
     LT = auto()         # <

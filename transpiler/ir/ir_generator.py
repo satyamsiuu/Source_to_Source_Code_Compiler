@@ -112,9 +112,11 @@ class IRGenerator:
         """ArrayDecl must have name, non-negative size, valid elements."""
         if not n.name:
             self.errors.append(CompilerError(Phase.IR, "ArrayDecl has empty name", n.line))
-        if n.size < 0:
+        if isinstance(n.size, int) and n.size < 0:
             self.errors.append(CompilerError(Phase.IR,
                 f"Array '{n.name}' has negative size {n.size}", n.line))
+        elif hasattr(n.size, "line"): # It's an ASTNode expression
+            self._check_node(n.size)
         for elem in n.elements:
             self._check_node(elem)
 
@@ -269,7 +271,8 @@ class IRGenerator:
                     "values": [self._n2d(v) for v in node.values],
                     "separator": node.separator, "line": node.line}
         if isinstance(node, InputStmt):
-            return {"node": "InputStmt", "target": node.target,
+            tgt = self._n2d(node.target) if hasattr(node.target, "line") else node.target
+            return {"node": "InputStmt", "target": tgt,
                     "data_type": node.data_type.value,
                     "prompt": node.prompt, "line": node.line}
         if isinstance(node, FunctionCall):

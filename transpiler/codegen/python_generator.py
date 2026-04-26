@@ -31,12 +31,26 @@ class PythonGenerator:
         self.indent_level = 0  # tracks current nesting depth
         self.lines = []        # accumulates output lines
         self.symbol_table = {} # tracks array sizes for ForEachStmt
-        # Functions first, then global statements
+        self._declared = set() # tracks already-declared vars (for VarDecl vs AssignStmt)
+        self._var_types = {}   # tracks var name → DataType for division inference
+        # Emit non-main functions first
         for func in program.functions:
+            if func.name == "main":
+                continue  # main body handled below as globals
             self._gen_function(func)
             self.lines.append("")  # blank line between top-level constructs
+        # Global statements
         for stmt in program.globals:
             self._gen_stmt(stmt)
+        # Unwrap main() body as top-level statements (C→Python fix)
+        main_funcs = [f for f in program.functions if f.name == "main"]
+        if main_funcs:
+            for stmt in main_funcs[0].body:
+                # Skip 'return 0' — C idiom, not needed in Python
+                if isinstance(stmt, ReturnStmt) and isinstance(getattr(stmt, 'value', None), Literal):
+                    if stmt.value.value == 0:
+                        continue
+                self._gen_stmt(stmt)
         if self.errors:
             raise CompilerErrorList(self.errors)
         return "\n".join(self.lines) + "\n"
@@ -66,6 +80,12 @@ class PythonGenerator:
             op = node.op
             if op == "&&": op = "and"
             elif op == "||": op = "or"
+            elif op == "/":
+                # Use // (integer division) only when BOTH operands are int
+                lt = self._infer_type(node.left)
+                rt = self._infer_type(node.right)
+                if DataType.FLOAT not in (lt, rt):
+                    op = "//"
             return f"({left} {op} {right})"
         if isinstance(node, UnaryOp):
             op = "not " if node.op in ("not", "!") else node.op
@@ -78,6 +98,23 @@ class PythonGenerator:
         self.errors.append(CompilerError(Phase.CODEGEN,
             f"Unknown expression node: {type(node).__name__}", getattr(node, 'line', 0)))
         return "???"
+
+    def _infer_type(self, node) -> DataType:
+        """Best-effort type inference for division operator selection.
+        Returns FLOAT if any operand is float, otherwise INT."""
+        if node is None: return DataType.INT
+        if isinstance(node, Literal): return node.data_type
+        if isinstance(node, Var):
+            return self._var_types.get(node.name, DataType.INT)
+        if isinstance(node, BinaryOp):
+            lt = self._infer_type(node.left)
+            rt = self._infer_type(node.right)
+            if DataType.FLOAT in (lt, rt): return DataType.FLOAT
+            return DataType.INT
+        if isinstance(node, ArrayAccess): return DataType.INT
+        if isinstance(node, FunctionCall): return DataType.INT
+        if isinstance(node, UnaryOp): return self._infer_type(node.operand)
+        return DataType.INT
 
     def _gen_literal(self, node: Literal) -> str:
         """Convert a Literal node to Python source representation."""
@@ -122,6 +159,13 @@ class PythonGenerator:
         self.indent_level -= 1
 
     def _gen_var_decl(self, node: VarDecl):
+        # If already declared in this scope, emit assignment instead of redeclaration
+        if node.name in self._declared:
+            if node.value is not None:
+                self._emit(f"{node.name} = {self._expr(node.value)}")
+            return
+        self._declared.add(node.name)
+        self._var_types[node.name] = node.data_type
         if node.value is not None:
             self._emit(f"{node.name} = {self._expr(node.value)}")
         else:
@@ -207,13 +251,18 @@ class PythonGenerator:
 
     def _gen_print(self, node: PrintStmt):
         args = ", ".join(self._expr(v) for v in node.values)
-        self._emit(f"print({args})")
+        # When separator is empty, use sep='' to avoid Python's default space
+        if node.separator == "" and len(node.values) > 1:
+            self._emit(f'print({args}, sep="")')
+        else:
+            self._emit(f"print({args})")
 
     def _gen_input(self, node: InputStmt):
         type_map = {DataType.INT: "int", DataType.FLOAT: "float"}
         wrapper = type_map.get(node.data_type, "")
         prompt = f'"{node.prompt}"' if node.prompt else ""
+        tgt = self._expr(node.target) if hasattr(node.target, "line") else node.target
         if wrapper:
-            self._emit(f"{node.target} = {wrapper}(input({prompt}))")
+            self._emit(f"{tgt} = {wrapper}(input({prompt}))")
         else:
-            self._emit(f"{node.target} = input({prompt})")
+            self._emit(f"{tgt} = input({prompt})")

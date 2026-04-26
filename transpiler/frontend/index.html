@@ -3,511 +3,927 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Source-to-Source Compiler</title>
+    <title>Source-to-Source Compiler — Transpiler Pipeline</title>
+    <meta name="description" content="A source-to-source compiler that converts between Python, C, and C++. Full compiler pipeline visualization.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-dark: #0f172a;
-            --bg-card: #1e293b;
-            --text-main: #f8fafc;
-            --text-dim: #94a3b8;
-            --accent: #38bdf8;
-            --success: #22c55e;
-            --error: #ef4444;
-            --warning: #f59e0b;
-            --blocked: #475569;
-            
-            /* Token Colors */
-            --tok-keyword: #EEEDFE; --tok-keyword-txt: #3C3489;
-            --tok-name: #E1F5EE;    --tok-name-txt: #085041;
-            --tok-number: #FAEEDA;  --tok-number-txt: #633806;
-            --tok-operator: #FAECE7; --tok-operator-txt: #712B13;
-            --tok-string: #FBEAF0;   --tok-string-txt: #72243E;
-            --tok-indent: #E6F1FB;   --tok-indent-txt: #0C447C;
+            --bg-primary: #0a0e1a;
+            --bg-secondary: #111827;
+            --bg-card: #1a2234;
+            --bg-card-hover: #1f2a3f;
+            --bg-editor: #0d1117;
+            --border: rgba(255,255,255,0.06);
+            --border-hover: rgba(255,255,255,0.12);
+            --text-primary: #f0f4f8;
+            --text-secondary: #8b98ab;
+            --text-dim: #5a6577;
+            --accent: #60a5fa;
+            --accent-glow: rgba(96,165,250,0.15);
+            --success: #34d399;
+            --success-bg: rgba(52,211,153,0.08);
+            --error: #f87171;
+            --error-bg: rgba(248,113,113,0.08);
+            --warning: #fbbf24;
+            --warning-bg: rgba(251,191,36,0.08);
+            --blocked: #374151;
+            --gradient-accent: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            /* Token colors */
+            --tok-keyword: #c4b5fd; --tok-keyword-bg: rgba(196,181,253,0.12);
+            --tok-name: #6ee7b7;    --tok-name-bg: rgba(110,231,183,0.12);
+            --tok-number: #fcd34d;  --tok-number-bg: rgba(252,211,77,0.12);
+            --tok-operator: #fb923c;--tok-operator-bg: rgba(251,146,60,0.12);
+            --tok-string: #f9a8d4;  --tok-string-bg: rgba(249,168,212,0.12);
+            --tok-indent: #67e8f9;  --tok-indent-bg: rgba(103,232,249,0.12);
+            /* AST Node colors */
+            --node-program: #60a5fa;
+            --node-function: #a78bfa;
+            --node-stmt: #34d399;
+            --node-expr: #fbbf24;
+            --node-literal: #fb923c;
+            --node-var: #6ee7b7;
         }
-
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            font-family: 'Inter', -apple-system, sans-serif; 
-            background: var(--bg-dark); 
-            color: var(--text-main);
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             height: 100vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
 
+        /* ─── Header ──────────────────────────── */
         header {
-            padding: 1rem 2rem;
-            background: rgba(30, 41, 59, 0.5);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding: 0.6rem 1.5rem;
+            background: rgba(17,24,39,0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            z-index: 10;
         }
-
-        main {
-            flex: 1;
-            display: flex;
-            overflow: hidden;
+        .logo-group { display: flex; align-items: center; gap: 0.75rem; }
+        .logo-icon {
+            width: 30px; height: 30px;
+            background: var(--gradient-accent);
+            border-radius: 7px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; font-weight: 800; color: #0a0e1a;
         }
+        .logo-text { font-weight: 700; font-size: 0.95rem; letter-spacing: -0.02em; }
+        .logo-sub { font-size: 0.65rem; color: var(--text-dim); letter-spacing: 0.05em; text-transform: uppercase; }
 
-        /* Left Panel: Editor */
+        main { flex: 1; display: flex; overflow: hidden; }
+
+        /* ─── Left: Editor ────────────────────── */
         .editor-panel {
-            width: 40%;
+            width: 36%;
+            min-width: 300px;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid rgba(255,255,255,0.1);
-            padding: 1.5rem;
+            border-right: 1px solid var(--border);
+            background: var(--bg-secondary);
         }
-
-        .controls {
+        .editor-toolbar {
+            padding: 0.6rem 0.75rem;
             display: flex;
-            gap: 1rem;
-            margin-bottom: 1rem;
+            justify-content: space-between;
             align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: rgba(26,34,52,0.5);
+            gap: 0.5rem;
+        }
+        .toolbar-left { display: flex; align-items: center; gap: 0.5rem; }
+
+        select {
+            background: var(--bg-card); color: var(--text-primary);
+            border: 1px solid var(--border);
+            padding: 0.35rem 1.5rem 0.35rem 0.6rem;
+            border-radius: 5px;
+            font-family: 'Inter', sans-serif; font-size: 0.75rem;
+            cursor: pointer; outline: none;
+            appearance: none; -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%238b98ab' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.4rem center;
+            transition: border-color 0.2s;
+        }
+        select:hover { border-color: var(--border-hover); }
+        select:focus { border-color: var(--accent); }
+
+        button {
+            font-family: 'Inter', sans-serif; font-size: 0.75rem;
+            padding: 0.35rem 0.75rem; border-radius: 5px;
+            cursor: pointer; border: 1px solid var(--border);
+            background: var(--bg-card); color: var(--text-primary);
+            transition: all 0.2s; font-weight: 500; white-space: nowrap;
+        }
+        button:hover:not(:disabled) { background: var(--bg-card-hover); border-color: var(--border-hover); }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-primary {
+            background: var(--gradient-accent); color: #0a0e1a; border: none;
+            font-weight: 600; box-shadow: 0 2px 10px rgba(96,165,250,0.2);
+        }
+        .btn-primary:hover:not(:disabled) { box-shadow: 0 3px 16px rgba(96,165,250,0.35); transform: translateY(-1px); }
+        .btn-success { background: var(--success); color: #0a0e1a; border: none; font-weight: 600; }
+        .btn-success:hover:not(:disabled) { box-shadow: 0 2px 10px rgba(52,211,153,0.3); }
+
+        .upload-btn {
+            position: relative; overflow: hidden;
+            background: var(--bg-card); border: 1px dashed var(--border-hover);
+        }
+        .upload-btn input[type="file"] {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+        .upload-btn:hover { border-color: var(--accent); background: var(--accent-glow); }
+
+        #editor {
+            flex: 1; background: var(--bg-editor); color: #e2e8f0;
+            border: none; padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; line-height: 1.65;
+            resize: none; outline: none; tab-size: 4;
+            white-space: pre; overflow-wrap: normal;
         }
 
-        select, button {
-            background: var(--bg-card);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.1);
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.9rem;
-        }
-
-        button.primary {
-            background: var(--accent);
-            color: var(--bg-dark);
-            font-weight: 600;
-            border: none;
-        }
-
-        textarea {
-            flex: 1;
-            background: #020617;
-            color: #e2e8f0;
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 8px;
-            padding: 1rem;
-            font-family: 'Fira Code', monospace;
-            font-size: 14px;
-            resize: none;
-            outline: none;
-        }
-
-        /* Right Panel: Pipeline */
+        /* ─── Right: Pipeline ─────────────────── */
         .pipeline-panel {
-            width: 60%;
-            padding: 2rem;
-            overflow-y: auto;
+            flex: 1; display: flex; flex-direction: column;
+            overflow-y: auto; padding: 1rem; gap: 0.6rem;
         }
-
-        .phase-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
+        .section-label {
+            font-size: 0.6rem; font-weight: 600;
+            letter-spacing: 0.1em; text-transform: uppercase;
+            color: var(--text-dim); padding: 0 0.25rem;
         }
-
         .phase-row {
-            background: var(--bg-card);
-            border: 1px solid rgba(255,255,255,0.05);
-            padding: 1rem 1.5rem;
-            border-radius: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            cursor: pointer;
-            transition: all 0.2s;
+            background: var(--bg-card); border: 1px solid var(--border);
+            padding: 0.6rem 0.9rem; border-radius: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+            cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
         }
-
-        .phase-row:hover:not(.blocked) {
-            transform: translateX(5px);
-            background: #2d3a4f;
+        .phase-row::before {
+            content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+            width: 3px; background: var(--blocked); transition: background 0.3s;
         }
-
-        .phase-row.blocked {
-            opacity: 0.5;
-            cursor: not-allowed;
+        .phase-row:hover:not(.blocked) { background: var(--bg-card-hover); border-color: var(--border-hover); transform: translateX(2px); }
+        .phase-row.blocked { opacity: 0.45; cursor: not-allowed; }
+        .phase-row.pass::before { background: var(--success); }
+        .phase-row.error::before { background: var(--error); }
+        .phase-info { display: flex; align-items: center; gap: 0.6rem; }
+        .status-indicator {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--blocked); flex-shrink: 0;
         }
-
-        .phase-info {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .status-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--blocked);
-        }
-
-        .status-dot.pass { background: var(--success); box-shadow: 0 0 10px var(--success); }
-        .status-dot.error { background: var(--error); box-shadow: 0 0 10px var(--error); }
-        .status-dot.pending { background: var(--warning); animation: pulse 1s infinite; }
-
-        .phase-name { font-weight: 500; }
+        .status-indicator.pass { background: var(--success); box-shadow: 0 0 6px var(--success); }
+        .status-indicator.error { background: var(--error); box-shadow: 0 0 6px var(--error); }
+        .status-indicator.pending { background: var(--warning); animation: pulse 1.2s ease-in-out infinite; }
+        .phase-name { font-weight: 500; font-size: 0.8rem; }
+        .phase-desc { font-size: 0.65rem; color: var(--text-dim); }
         .status-badge {
-            font-size: 0.75rem;
-            padding: 0.2rem 0.6rem;
-            border-radius: 4px;
-            background: rgba(0,0,0,0.2);
-            color: var(--text-dim);
-            text-transform: uppercase;
+            font-size: 0.6rem; padding: 0.15rem 0.45rem; border-radius: 3px;
+            background: rgba(55,65,81,0.5); color: var(--text-dim);
+            text-transform: uppercase; font-weight: 600; letter-spacing: 0.04em;
         }
+        .status-badge.pass { background: var(--success-bg); color: var(--success); }
+        .status-badge.error { background: var(--error-bg); color: var(--error); }
 
-        /* Target Selection Area */
-        .target-controls {
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid rgba(255,255,255,0.1);
-            display: none;
+        /* ─── Target Section ──────────────────── */
+        .target-section {
+            padding: 0.9rem; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: 8px; display: none;
         }
+        .target-section.visible { display: block; }
+        .target-header { font-size: 0.6rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+        .target-controls { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+        .target-controls label { font-size: 0.75rem; color: var(--text-secondary); }
+        .input-section {
+            margin-top: 0.6rem; padding: 0.6rem 0.75rem;
+            background: var(--warning-bg); border: 1px solid rgba(251,191,36,0.2);
+            border-radius: 6px; display: none;
+        }
+        .input-section.visible { display: block; }
+        .input-section label { display: block; font-size: 0.7rem; font-weight: 600; color: var(--warning); margin-bottom: 0.3rem; }
+        .input-section input {
+            width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(251,191,36,0.2);
+            border-radius: 5px; padding: 0.35rem 0.6rem; color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; outline: none;
+        }
+        .input-section input:focus { border-color: var(--warning); }
+        .input-hint { font-size: 0.6rem; color: var(--text-dim); margin-top: 0.2rem; }
 
-        /* Modals */
+        .codegen-preview { margin-top: 0.6rem; display: none; }
+        .codegen-preview.visible { display: block; }
+        .codegen-preview pre { max-height: 160px; overflow-y: auto; }
+
+        .validation-result { margin-top: 0.6rem; display: none; }
+        .validation-result.visible { display: block; }
+        .val-header { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem; }
+        .val-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+        .val-pane h4 { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 0.3rem; }
+
+        /* ─── Modal ───────────────────────────── */
         .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);
+            display: none; justify-content: center; align-items: center; z-index: 1000;
         }
-
         .modal {
-            background: var(--bg-card);
-            width: 80%;
-            max-width: 900px;
-            max-height: 85vh;
-            border-radius: 12px;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: var(--bg-card); width: 88%; max-width: 1000px; max-height: 85vh;
+            border-radius: 12px; display: flex; flex-direction: column;
+            box-shadow: 0 25px 60px -12px rgba(0,0,0,0.6); border: 1px solid var(--border);
         }
-
         .modal-header {
-            padding: 1.25rem 1.5rem;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
         }
-
-        .modal-body {
-            padding: 1.5rem;
-            overflow-y: auto;
-            flex: 1;
-        }
-
+        .modal-header h2 { font-size: 0.95rem; font-weight: 600; }
+        .modal-body { padding: 1rem; overflow-y: auto; flex: 1; }
         .close-btn {
             background: none; border: none; color: var(--text-dim);
-            font-size: 1.5rem; cursor: pointer;
+            font-size: 1.2rem; cursor: pointer; padding: 0.25rem; transition: color 0.2s;
         }
+        .close-btn:hover { color: var(--text-primary); }
 
-        /* Phase Specific Content */
-        .token-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        /* ─── Content ─────────────────────────── */
+        .token-pills { display: flex; flex-wrap: wrap; gap: 3px; }
         .pill {
-            padding: 0.3rem 0.6rem;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 0.85rem;
+            padding: 0.15rem 0.4rem; border-radius: 3px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 500;
         }
-        .pill.KEYWORD { background: var(--tok-keyword); color: var(--tok-keyword-txt); }
-        .pill.NAME { background: var(--tok-name); color: var(--tok-name-txt); }
-        .pill.NUMBER { background: var(--tok-number); color: var(--tok-number-txt); }
-        .pill.OPERATOR { background: var(--tok-operator); color: var(--tok-operator-txt); }
-        .pill.STRING { background: var(--tok-string); color: var(--tok-string-txt); }
-        .pill.INDENT, .pill.DEDENT { background: var(--tok-indent); color: var(--tok-indent-txt); }
+        .pill.KEYWORD { background: var(--tok-keyword-bg); color: var(--tok-keyword); }
+        .pill.NAME    { background: var(--tok-name-bg);    color: var(--tok-name); }
+        .pill.NUMBER  { background: var(--tok-number-bg);  color: var(--tok-number); }
+        .pill.OPERATOR{ background: var(--tok-operator-bg); color: var(--tok-operator); }
+        .pill.STRING  { background: var(--tok-string-bg);  color: var(--tok-string); }
+        .pill.INDENT, .pill.DEDENT { background: var(--tok-indent-bg); color: var(--tok-indent); }
+        .pill.NEWLINE { background: rgba(107,114,128,0.1); color: #6b7280; }
+        .pill.LPAREN, .pill.RPAREN, .pill.LBRACE, .pill.RBRACE,
+        .pill.LBRACKET, .pill.RBRACKET, .pill.SEMICOLON, .pill.COMMA,
+        .pill.COLON { background: rgba(107,114,128,0.08); color: #6b7280; }
+        .pill.ASSIGN, .pill.PLUS, .pill.MINUS, .pill.STAR, .pill.SLASH, .pill.MODULO,
+        .pill.LT, .pill.GT, .pill.EQ, .pill.NEQ, .pill.LEQ, .pill.GEQ { background: var(--tok-operator-bg); color: var(--tok-operator); }
+        .pill.INT_KW, .pill.FLOAT_KW, .pill.BOOL_KW, .pill.VOID,
+        .pill.IF, .pill.ELSE, .pill.WHILE, .pill.FOR, .pill.RETURN,
+        .pill.DEF, .pill.TRUE, .pill.FALSE, .pill.AND, .pill.OR, .pill.NOT,
+        .pill.PRINTF, .pill.SCANF, .pill.MAIN, .pill.INCLUDE,
+        .pill.COUT, .pill.CIN, .pill.RANGE, .pill.IN { background: var(--tok-keyword-bg); color: var(--tok-keyword); }
+        .pill.EOF { background: rgba(255,255,255,0.03); color: #374151; }
 
-        pre { 
-            background: #020617; 
-            padding: 1rem; 
-            border-radius: 6px; 
-            overflow-x: auto;
-            color: #cbd5e1;
-            font-size: 0.9rem;
-            line-height: 1.5;
+        pre {
+            background: var(--bg-editor); padding: 0.75rem; border-radius: 6px;
+            overflow-x: auto; color: #c9d1d9;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; line-height: 1.5;
+            border: 1px solid var(--border);
         }
-
         .error-block {
-            border-left: 4px solid var(--error);
-            background: rgba(239, 68, 68, 0.1);
-            padding: 1rem;
-            margin-bottom: 1rem;
-            border-radius: 0 6px 6px 0;
+            border-left: 3px solid var(--error); background: var(--error-bg);
+            padding: 0.6rem 0.75rem; margin-bottom: 0.4rem; border-radius: 0 6px 6px 0;
+        }
+        .error-block .err-location { font-weight: 600; color: var(--error); font-size: 0.75rem; }
+        .error-block .err-message { color: var(--text-secondary); font-size: 0.8rem; margin-top: 0.2rem; }
+
+        /* ─── Semantic Table ──────────────────── */
+        .sym-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-top: 0.5rem; }
+        .sym-table th {
+            text-align: left; padding: 0.4rem 0.6rem; font-weight: 600;
+            color: var(--accent); border-bottom: 1px solid var(--border);
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em;
+        }
+        .sym-table td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+        .sym-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .sym-kind { padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: 600; }
+        .sym-kind.function { background: rgba(167,139,250,0.15); color: #a78bfa; }
+        .sym-kind.var { background: rgba(110,231,183,0.15); color: #6ee7b7; }
+
+        /* ─── AST Tree (SVG) ──────────────────── */
+        .ast-container {
+            width: 100%; background: var(--bg-editor);
+            border-radius: 8px; border: 1px solid var(--border);
+            position: relative; overflow: hidden;
+        }
+        .ast-viewport {
+            overflow: auto; max-height: 450px; cursor: grab;
+        }
+        .ast-viewport:active { cursor: grabbing; }
+        .ast-viewport svg { display: block; transform-origin: 0 0; }
+        .ast-controls {
+            position: absolute; top: 8px; right: 8px;
+            display: flex; gap: 4px; z-index: 5;
+        }
+        .ast-controls button {
+            background: rgba(26,34,52,0.9); border: 1px solid var(--border);
+            color: var(--text-primary); padding: 3px 8px; font-size: 0.7rem;
+            border-radius: 4px; cursor: pointer; backdrop-filter: blur(4px);
+        }
+        .ast-controls button:hover { background: var(--bg-card-hover); }
+        .ast-node rect { rx: 8; ry: 8; stroke-width: 1.5; cursor: pointer; transition: filter 0.2s; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3)); }
+        .ast-node rect:hover { filter: brightness(1.3) drop-shadow(0 2px 6px rgba(0,0,0,0.4)); }
+        .ast-node text { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: #f0f4f8; pointer-events: none; }
+        .ast-edge { stroke: #4b5563; stroke-width: 1.5; fill: none; }
+        .color-legend {
+            display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px;
+            border-top: 1px solid var(--border); background: rgba(13,17,23,0.6);
+        }
+        .legend-item {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 0.6rem; color: var(--text-secondary);
+        }
+        .legend-dot {
+            width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
         }
 
-        .validation-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
+        /* ─── Summary Cards ──────────────────── */
+        .summary-cards { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+        .summary-card {
+            background: var(--bg-editor); border: 1px solid var(--border); border-radius: 6px;
+            padding: 0.5rem 0.75rem; flex: 1; min-width: 100px;
         }
+        .summary-card .num { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+        .summary-card .lbl { font-size: 0.6rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
 
-        @keyframes pulse {
-            0% { opacity: 0.6; }
-            50% { opacity: 1; }
-            100% { opacity: 0.6; }
-        }
+        @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .phase-row { animation: slideIn 0.3s ease forwards; opacity: 0; }
     </style>
 </head>
 <body>
     <header>
-        <h1 style="font-size: 1.25rem; font-weight: 700; color: var(--accent);">Source-to-Source Compiler</h1>
-        <div style="font-size: 0.8rem; color: var(--text-dim);">Final Project Pipeline</div>
+        <div class="logo-group">
+            <div class="logo-icon">S²</div>
+            <div>
+                <div class="logo-text">Source-to-Source Compiler</div>
+                <div class="logo-sub">Python · C · C++ Transpiler Pipeline</div>
+            </div>
+        </div>
+        <div style="font-size:0.65rem;color:var(--text-dim);">Compiler Design Project</div>
     </header>
 
     <main>
         <div class="editor-panel">
-            <div class="controls">
-                <select id="srcLang">
-                    <option value="python">Python Source</option>
-                    <option value="c">C Source</option>
-                    <option value="cpp">C++ Source</option>
-                </select>
-                <button class="primary" onclick="compile()">Compile</button>
+            <div class="editor-toolbar">
+                <div class="toolbar-left">
+                    <select id="srcLang" onchange="onLangChange()">
+                        <option value="python">Python</option>
+                        <option value="c">C</option>
+                        <option value="cpp">C++</option>
+                    </select>
+                    <label class="upload-btn" title="Upload .py / .c / .cpp file">
+                        📂 Upload
+                        <input type="file" id="fileUpload" accept=".py,.c,.cpp,.h,.hpp" onchange="uploadFile(event)">
+                    </label>
+                </div>
+                <button class="btn-primary" id="compileBtn" onclick="compile()">▶ Compile</button>
             </div>
-            <textarea id="editor" placeholder="Enter source code here...">def add(x, y):
+            <textarea id="editor" spellcheck="false" placeholder="Enter source code here...">def add(x, y):
     return x + y
 
 result = add(3, 4)
 print(result)</textarea>
         </div>
 
-        <div class="pipeline-panel">
-            <div class="phase-list" id="phaseList">
-                <!-- Phases populated by JS -->
-            </div>
+        <div class="pipeline-panel" id="pipelinePanel">
+            <div class="section-label">Compiler Pipeline — Frontend Phases</div>
+            <div id="phaseList"></div>
 
-            <div class="target-controls" id="targetSection">
-                <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--accent);">Backend Generation & Validation</h3>
-                <div class="controls">
-                    <span>Target:</span>
+            <div class="target-section" id="targetSection">
+                <div class="target-header">⚡ Backend — Code Generation & Validation</div>
+                <div class="target-controls">
+                    <label>Target:</label>
                     <select id="tgtLang">
                         <option value="c">C (ANSI)</option>
                         <option value="cpp">C++ (ISO)</option>
-                        <option value="python">Python (CPython)</option>
+                        <option value="python">Python 3</option>
                     </select>
-                    <button onclick="generate()">Generate Code</button>
-                    <button onclick="validate()" id="validateBtn">Run Validation</button>
+                    <button class="btn-primary" onclick="generate()">Generate</button>
+                    <button class="btn-success" id="validateBtn" onclick="validate()" disabled>✓ Validate</button>
+                </div>
+                <div class="input-section" id="inputSection">
+                    <label>⚠ This program requires input — provide test values:</label>
+                    <input type="text" id="testInputs" placeholder="e.g. 5, 10  or  hello" />
+                    <div class="input-hint">Enter one value per input() / scanf() call, separated by commas or spaces</div>
+                </div>
+                <div class="codegen-preview" id="codegenPreview">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                        <span style="font-size:0.65rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;">Generated Code</span>
+                        <button style="font-size:0.65rem;padding:0.15rem 0.4rem;" onclick="showModal('codegen')">Expand ↗</button>
+                    </div>
+                    <pre id="codegenCode" style="max-height:160px;overflow-y:auto;"></pre>
+                </div>
+                <div class="validation-result" id="validationResult">
+                    <div class="val-header" id="valHeader"></div>
+                    <div class="val-grid">
+                        <div class="val-pane"><h4>Source Output (<span id="valSrcLang"></span>)</h4><pre id="valSrcOut"></pre></div>
+                        <div class="val-pane"><h4>Target Output (<span id="valTgtLang"></span>)</h4><pre id="valTgtOut"></pre></div>
+                    </div>
+                    <div id="valDiff" style="margin-top:0.4rem;"></div>
                 </div>
             </div>
         </div>
     </main>
 
-    <!-- Modal Overlay -->
     <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
         <div class="modal" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h2 id="modalTitle">Phase Output</h2>
                 <button class="close-btn" onclick="closeModal()">×</button>
             </div>
-            <div class="modal-body" id="modalBody">
-                <!-- Dynamic Content -->
-            </div>
+            <div class="modal-body" id="modalBody"></div>
         </div>
     </div>
 
     <script>
+        /* ═══════════════════════════════════════════════════
+           STATE
+           ═══════════════════════════════════════════════════ */
         const phases = [
-            { id: 'preprocessor', name: 'Preprocessor', desc: 'Comments removal & cleanup' },
-            { id: 'lexer', name: 'Lexer', desc: 'Tokenisation & categorisation' },
-            { id: 'parser', name: 'Parser', desc: 'Syntactic structure (AST) building' },
-            { id: 'semantic', name: 'Semantic', desc: 'Type checking & scope validation' },
-            { id: 'ir', name: 'IR', desc: 'Language-neutral representation' }
+            { id:'preprocessor', name:'Preprocessor', desc:'Comment removal & source cleanup' },
+            { id:'lexer',        name:'Lexer',        desc:'Tokenization & categorization' },
+            { id:'parser',       name:'Parser',       desc:'AST construction' },
+            { id:'semantic',     name:'Semantic',      desc:'Type checking & scope resolution' },
+            { id:'ir',           name:'IR Generator',  desc:'Language-neutral representation' }
         ];
+        let state = { results:{}, generatedCode:'', targetLang:'', hasInput:false, compiled:false };
 
-        let state = {
-            results: {},
-            generatedCode: '',
-            targetLang: ''
-        };
+        /* ═══════════════════════════════════════════════════
+           TAB KEY SUPPORT IN EDITOR
+           ═══════════════════════════════════════════════════ */
+        document.getElementById('editor').addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const s = this.selectionStart, end = this.selectionEnd;
+                if (e.shiftKey) {
+                    // Shift+Tab: remove leading 4 spaces on current line
+                    const before = this.value.substring(0, s);
+                    const lineStart = before.lastIndexOf('\n') + 1;
+                    const line = this.value.substring(lineStart);
+                    if (line.startsWith('    ')) {
+                        this.value = this.value.substring(0, lineStart) + this.value.substring(lineStart + 4);
+                        this.selectionStart = this.selectionEnd = Math.max(lineStart, s - 4);
+                    }
+                } else {
+                    // Tab: insert 4 spaces
+                    this.value = this.value.substring(0, s) + '    ' + this.value.substring(end);
+                    this.selectionStart = this.selectionEnd = s + 4;
+                }
+            }
+        });
 
+        /* ═══════════════════════════════════════════════════
+           FILE UPLOAD
+           ═══════════════════════════════════════════════════ */
+        function uploadFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const ext = file.name.split('.').pop().toLowerCase();
+            const langMap = { 'py':'python', 'c':'c', 'cpp':'cpp', 'h':'c', 'hpp':'cpp' };
+            const lang = langMap[ext];
+            if (lang) document.getElementById('srcLang').value = lang;
+            const reader = new FileReader();
+            reader.onload = () => { document.getElementById('editor').value = reader.result; };
+            reader.readAsText(file);
+            e.target.value = ''; // reset so same file can be uploaded again
+        }
+
+        function onLangChange() {
+            // Update default placeholder based on selected language
+            const lang = document.getElementById('srcLang').value;
+            const placeholders = {
+                python: 'def add(x, y):\n    return x + y\n\nresult = add(3, 4)\nprint(result)',
+                c: '#include <stdio.h>\nint main() {\n    int x = 42;\n    printf("%d\\n", x);\n    return 0;\n}',
+                cpp: '#include <iostream>\nusing namespace std;\nint main() {\n    cout << "Hello World" << endl;\n    return 0;\n}'
+            };
+            const editor = document.getElementById('editor');
+            if (!editor.value.trim() || editor.value === editor.dataset.lastPlaceholder) {
+                editor.value = placeholders[lang] || '';
+                editor.dataset.lastPlaceholder = editor.value;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════
+           INIT PHASES
+           ═══════════════════════════════════════════════════ */
         function initPhases() {
-            const list = document.getElementById('phaseList');
-            list.innerHTML = phases.map(p => `
-                <div class="phase-row blocked" id="row-${p.id}" onclick="showModal('${p.id}')">
+            document.getElementById('phaseList').innerHTML = phases.map((p, i) => `
+                <div class="phase-row blocked" id="row-${p.id}" onclick="showModal('${p.id}')" style="animation-delay:${i*0.04}s">
                     <div class="phase-info">
-                        <div class="status-dot" id="dot-${p.id}"></div>
+                        <div class="status-indicator" id="dot-${p.id}"></div>
                         <div>
                             <div class="phase-name">${p.name}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-dim);">${p.desc}</div>
+                            <div class="phase-desc">${p.desc}</div>
                         </div>
                     </div>
-                    <div class="status-badge" id="badge-${p.id}">Blocked</div>
+                    <div class="status-badge" id="badge-${p.id}">waiting</div>
                 </div>
             `).join('');
         }
 
+        /* ═══════════════════════════════════════════════════
+           COMPILE (Phases 1-5)
+           ═══════════════════════════════════════════════════ */
         async function compile() {
-            const source = document.getElementById('editor').value;
+            const source = document.getElementById('editor').value.trim();
+            if (!source) return;
             const lang = document.getElementById('srcLang').value;
-            
-            // Reset UI
-            initPhases();
-            document.getElementById('targetSection').style.display = 'none';
-            state.results = {};
-
-            // Show pending
-            document.getElementById('dot-preprocessor').className = 'status-dot pending';
-            document.getElementById('badge-preprocessor').innerText = 'Running...';
-
+            const btn = document.getElementById('compileBtn');
+            initPhases(); hideTarget();
+            state = { results:{}, generatedCode:'', targetLang:'', hasInput:false, compiled:false };
+            btn.textContent = '⏳ Compiling...'; btn.disabled = true;
+            document.getElementById('dot-preprocessor').className = 'status-indicator pending';
+            document.getElementById('badge-preprocessor').textContent = 'running';
+            document.getElementById('row-preprocessor').className = 'phase-row';
+            document.getElementById('row-preprocessor').style.animationDelay = '0s';
             try {
-                const response = await fetch('/compile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                const r = await fetch('/compile', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({ source, lang })
                 });
-                
-                const data = await response.json();
+                const data = await r.json();
                 state.results = data;
-                updateUI();
-            } catch (err) {
-                alert('Compile failed: ' + err.message);
-            }
+                state.hasInput = data.has_input || false;
+                state.compiled = true;
+                updatePipelineUI();
+            } catch(err) { alert('Network error: ' + err.message); }
+            finally { btn.textContent = '▶ Compile'; btn.disabled = false; }
         }
 
-        function updateUI() {
-            phases.forEach(p => {
-                const res = state.results[p.id];
+        function updatePipelineUI() {
+            phases.forEach((p, i) => {
+                const res = state.results[p.id]; if (!res) return;
                 const row = document.getElementById(`row-${p.id}`);
                 const dot = document.getElementById(`dot-${p.id}`);
                 const badge = document.getElementById(`badge-${p.id}`);
-
                 row.className = `phase-row ${res.status}`;
-                dot.className = `status-dot ${res.status}`;
-                badge.innerText = res.status.toUpperCase();
+                row.style.animationDelay = `${i * 0.06}s`;
+                dot.className = `status-indicator ${res.status}`;
+                badge.className = `status-badge ${res.status}`;
+                badge.textContent = res.status === 'pass' ? '✓ pass' : res.status.toUpperCase();
             });
-
-            // If IR passed, show target section
-            if (state.results.ir && state.results.ir.status === 'pass') {
-                document.getElementById('targetSection').style.display = 'block';
-            }
+            if (state.results.ir && state.results.ir.status === 'pass') showTarget();
         }
 
+        function showTarget() {
+            document.getElementById('targetSection').classList.add('visible');
+            document.getElementById('inputSection').classList[state.hasInput ? 'add' : 'remove']('visible');
+        }
+        function hideTarget() {
+            ['targetSection','codegenPreview','validationResult','inputSection'].forEach(id =>
+                document.getElementById(id).classList.remove('visible'));
+            document.getElementById('validateBtn').disabled = true;
+        }
+
+        /* ═══════════════════════════════════════════════════
+           GENERATE (Phase 6)
+           ═══════════════════════════════════════════════════ */
         async function generate() {
             const source = document.getElementById('editor').value;
             const src_lang = document.getElementById('srcLang').value;
             const tgt_lang = document.getElementById('tgtLang').value;
-
             try {
-                const response = await fetch('/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                const r = await fetch('/generate', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({ source, src_lang, tgt_lang })
                 });
-                const data = await response.json();
+                const data = await r.json();
+                if (data.status === 'error') { alert('Error: ' + data.message); return; }
                 state.generatedCode = data.code;
                 state.targetLang = tgt_lang;
-                
-                showCodegenModal(data.code, tgt_lang);
-            } catch (err) {
-                alert('Generation failed');
-            }
+                document.getElementById('codegenCode').textContent = data.code;
+                document.getElementById('codegenPreview').classList.add('visible');
+                document.getElementById('validateBtn').disabled = false;
+                document.getElementById('validationResult').classList.remove('visible');
+            } catch(err) { alert('Error: ' + err.message); }
         }
 
+        /* ═══════════════════════════════════════════════════
+           VALIDATE (Phase 7)
+           ═══════════════════════════════════════════════════ */
         async function validate() {
+            if (!state.generatedCode) { alert('Generate code first.'); return; }
             const btn = document.getElementById('validateBtn');
-            btn.innerText = 'Validating...';
-            btn.disabled = true;
-
-            const inputs = prompt("Enter test inputs (comma-separated, optional):", "");
-            const inputList = inputs ? inputs.split(',').map(s => s.trim()) : [];
-
+            btn.textContent = '⏳ Running...'; btn.disabled = true;
+            const inputField = document.getElementById('testInputs');
+            let inputList = [];
+            if (state.hasInput && inputField.value.trim()) {
+                // Split on commas first; if only 1 result, try splitting on spaces
+                let parts = inputField.value.split(',').map(s => s.trim()).filter(s => s);
+                if (parts.length === 1 && parts[0].includes(' ')) {
+                    parts = parts[0].split(/\s+/).filter(s => s);
+                }
+                inputList = parts;
+            }
             try {
-                const response = await fetch('/validate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                const r = await fetch('/validate', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
                     body: JSON.stringify({
-                        src_code: document.getElementById('editor').value,
+                        source: document.getElementById('editor').value,
                         src_lang: document.getElementById('srcLang').value,
-                        tgt_code: state.generatedCode,
-                        tgt_lang: state.targetLang,
-                        inputs: inputList
+                        tgt_lang: state.targetLang, inputs: inputList
                     })
                 });
-                const data = await response.json();
-                showValidationModal(data.result);
-            } catch (err) {
-                alert('Validation failed: ' + err.message);
-            } finally {
-                btn.innerText = 'Run Validation';
-                btn.disabled = false;
-            }
+                const data = await r.json();
+                if (data.status === 'error') showValidationError(data.message);
+                else showValidationResult(data.result);
+            } catch(err) { showValidationError(err.message); }
+            finally { btn.textContent = '✓ Validate'; btn.disabled = false; }
         }
 
-        function showModal(id) {
-            const res = state.results[id];
-            if (!res || res.status === 'blocked') return;
+        function showValidationResult(res) {
+            const c = document.getElementById('validationResult');
+            const h = document.getElementById('valHeader');
+            const sl = document.getElementById('srcLang').value.toUpperCase();
+            const tl = state.targetLang.toUpperCase();
+            h.innerHTML = res.passed
+                ? `<span style="font-size:1.1rem">✅</span> <span style="color:var(--success)">Validation Passed</span><span style="font-size:0.65rem;color:var(--text-dim);margin-left:0.4rem;">Outputs match</span>`
+                : `<span style="font-size:1.1rem">❌</span> <span style="color:var(--error)">Validation Failed</span><span style="font-size:0.65rem;color:var(--text-dim);margin-left:0.4rem;">Output mismatch</span>`;
+            document.getElementById('valSrcLang').textContent = sl;
+            document.getElementById('valTgtLang').textContent = tl;
+            document.getElementById('valSrcOut').textContent = res.source_out || '(no output)';
+            document.getElementById('valTgtOut').textContent = res.target_out || '(no output)';
+            const d = document.getElementById('valDiff');
+            d.innerHTML = res.diff ? `<pre style="border-left:3px solid var(--error);font-size:0.7rem;">${escapeHtml(res.diff)}</pre>` : '';
+            c.classList.add('visible');
+        }
+        function showValidationError(msg) {
+            document.getElementById('valHeader').innerHTML = `<span style="font-size:1.1rem">⚠️</span> <span style="color:var(--error)">Error</span>`;
+            document.getElementById('valSrcOut').textContent = msg;
+            document.getElementById('valTgtOut').textContent = '';
+            document.getElementById('valDiff').innerHTML = '';
+            document.getElementById('valSrcLang').textContent = ''; document.getElementById('valTgtLang').textContent = '';
+            document.getElementById('validationResult').classList.add('visible');
+        }
 
-            document.getElementById('modalTitle').innerText = id.charAt(0).toUpperCase() + id.slice(1) + ' Output';
-            const body = document.getElementById('modalBody');
-            body.innerHTML = '';
+        /* ═══════════════════════════════════════════════════
+           AST TREE RENDERER (SVG)
+           ═══════════════════════════════════════════════════ */
+        function renderAstTree(treeData, legendData) {
+            if (!treeData) return '<p style="color:var(--text-dim)">No tree data</p>';
 
-            if (res.status === 'error') {
-                body.innerHTML = res.errors.map(err => `
-                    <div class="error-block">
-                        <div style="font-weight: bold; color: var(--error);">ERROR at Line ${err.line}, Col ${err.col}</div>
-                        <div style="margin-top: 0.5rem;">${err.message}</div>
-                    </div>
-                `).join('');
-            } else {
-                switch(id) {
-                    case 'preprocessor':
-                        body.innerHTML = `<h4>Stripped Comments:</h4><pre>${res.comments.join('\n') || 'None'}</pre>`;
-                        break;
-                    case 'lexer':
-                        body.innerHTML = `<div class="token-pills">${res.tokens.map(t => `<span class="pill ${t.type}">${t.type}:${t.value}</span>`).join('')}</div>`;
-                        break;
-                    case 'parser':
-                        body.innerHTML = `<pre>${res.ast_text}</pre>`;
-                        break;
-                    case 'semantic':
-                        body.innerHTML = `<h4>Symbol Table:</h4><pre>${JSON.stringify(res.symbol_table, null, 2)}</pre>`;
-                        break;
-                    case 'ir':
-                        body.innerHTML = `<pre>${JSON.stringify(res.ir_dict, null, 2)}</pre>`;
-                        break;
+            const nodeW = 130, nodeH = 32, hGap = 20, vGap = 60;
+            let nodeId = 0;
+            const nodes = [], edges = [];
+            const uid = 'ast_' + Date.now();
+
+            // Color mapping by node type
+            function nodeColor(type) {
+                const map = {
+                    Program: '#3b82f6', FunctionDecl: '#8b5cf6',
+                    Params: '#7c3aed', Body: '#475569', ThenBlock: '#059669', ElseBlock: '#dc2626',
+                    Condition: '#d97706', Start: '#d97706', Stop: '#d97706', Step: '#d97706',
+                    IfStmt: '#10b981', WhileStmt: '#10b981', ForRangeStmt: '#10b981', ForEachStmt: '#10b981',
+                    ReturnStmt: '#6366f1', PrintStmt: '#ec4899', InputStmt: '#f59e0b',
+                    VarDecl: '#14b8a6', ArrayDecl: '#14b8a6', AssignStmt: '#0ea5e9', ArrayAssign: '#0ea5e9',
+                    BinaryOp: '#f97316', UnaryOp: '#f97316', FunctionCall: '#a855f7',
+                    Literal: '#eab308', Var: '#22d3ee', Param: '#a78bfa'
+                };
+                return map[type] || '#6b7280';
+            }
+
+            function computeWidth(node) {
+                if (!node || !node.children || node.children.length === 0) return nodeW;
+                let total = 0;
+                for (const child of node.children) {
+                    if (child) total += computeWidth(child) + hGap;
+                }
+                return Math.max(nodeW, total - hGap);
+            }
+
+            function layout(node, x, y, w) {
+                if (!node) return;
+                const id = nodeId++;
+                const nx = x + w / 2;
+                const label = (node.label || node.type).substring(0, 18);
+                nodes.push({ id, x: nx, y, label, type: node.type, color: nodeColor(node.type) });
+
+                if (node.children && node.children.length > 0) {
+                    const validChildren = node.children.filter(c => c);
+                    if (validChildren.length === 0) return;
+                    let totalW = 0;
+                    const widths = validChildren.map(c => { const cw = computeWidth(c); totalW += cw; return cw; });
+                    totalW += (validChildren.length - 1) * hGap;
+                    let cx = nx - totalW / 2;
+                    validChildren.forEach((child, i) => {
+                        const childCx = cx + widths[i] / 2;
+                        edges.push({ from: { x: nx, y: y + nodeH }, to: { x: childCx, y: y + vGap } });
+                        layout(child, cx, y + vGap, widths[i]);
+                        cx += widths[i] + hGap;
+                    });
                 }
             }
 
-            document.getElementById('modalOverlay').style.display = 'flex';
-        }
+            const totalW = computeWidth(treeData);
+            layout(treeData, 0, 20, totalW);
 
-        function showCodegenModal(code, lang) {
-            document.getElementById('modalTitle').innerText = 'Generated ' + lang.toUpperCase();
-            document.getElementById('modalBody').innerHTML = `<pre>${code}</pre>`;
-            document.getElementById('modalOverlay').style.display = 'flex';
-        }
+            const pad = 30;
+            const svgW = totalW + pad * 2;
+            const maxY = nodes.reduce((m, n) => Math.max(m, n.y), 0);
+            const svgH = maxY + nodeH + pad * 2;
 
-        function showValidationModal(res) {
-            document.getElementById('modalTitle').innerText = 'Validation Result: ' + (res.passed ? 'PASS ✅' : 'FAIL ❌');
-            document.getElementById('modalBody').innerHTML = `
-                <div class="validation-grid">
-                    <div>
-                        <h4 style="color:var(--accent);">Source Output:</h4>
-                        <pre>${res.source_out}</pre>
-                    </div>
-                    <div>
-                        <h4 style="color:var(--accent);">Target Output:</h4>
-                        <pre>${res.target_out}</pre>
-                    </div>
+            let svg = `<svg id="${uid}" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">`;
+            // Edges
+            edges.forEach(e => {
+                const fx = e.from.x + pad, fy = e.from.y;
+                const tx = e.to.x + pad, ty = e.to.y;
+                const my = fy + (ty - fy) * 0.5;
+                svg += `<path class="ast-edge" d="M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}"/>`;
+            });
+            // Nodes
+            nodes.forEach(n => {
+                const w = Math.max(nodeW, n.label.length * 7.5 + 20);
+                const rx = n.x - w / 2 + pad;
+                svg += `<g class="ast-node">`;
+                svg += `<rect x="${rx}" y="${n.y}" width="${w}" height="${nodeH}" fill="${n.color}" stroke="${n.color}" stroke-opacity="0.4"/>`;
+                svg += `<text x="${rx + w/2}" y="${n.y + nodeH/2 + 4}" text-anchor="middle" fill="#fff" font-size="11">${escapeHtml(n.label)}</text>`;
+                svg += `</g>`;
+            });
+            svg += '</svg>';
+
+            // Build legend
+            let legendHtml = '';
+            if (legendData && legendData.length) {
+                legendHtml = '<div class="color-legend">';
+                legendData.forEach(item => {
+                    legendHtml += `<div class="legend-item"><span class="legend-dot" style="background:${item.color}"></span>${item.category}</div>`;
+                });
+                legendHtml += '</div>';
+            } else {
+                // Default legend
+                const defaultLegend = [
+                    {c:'#3b82f6',l:'Program'},{c:'#8b5cf6',l:'Functions'},{c:'#10b981',l:'Control Flow'},
+                    {c:'#ec4899',l:'Print/IO'},{c:'#14b8a6',l:'Declarations'},{c:'#0ea5e9',l:'Assignments'},
+                    {c:'#6366f1',l:'Return'},{c:'#f97316',l:'Expressions'},{c:'#eab308',l:'Literals'},
+                    {c:'#22d3ee',l:'Variables'},{c:'#475569',l:'Structural'}
+                ];
+                legendHtml = '<div class="color-legend">';
+                defaultLegend.forEach(({c,l}) => {
+                    legendHtml += `<div class="legend-item"><span class="legend-dot" style="background:${c}"></span>${l}</div>`;
+                });
+                legendHtml += '</div>';
+            }
+
+            return `<div class="ast-container">
+                <div class="ast-controls">
+                    <button onclick="astZoom('${uid}', 'fit')" title="Fit to view">Fit</button>
+                    <button onclick="astZoom('${uid}', 'in')" title="Zoom in">+</button>
+                    <button onclick="astZoom('${uid}', 'out')" title="Zoom out">−</button>
                 </div>
-                <div style="margin-top:1rem;">
-                    <h4>Comparison Logic:</h4>
-                    <p style="font-size:0.8rem; color:var(--text-dim);">Values compared with 1e-6 float tolerance, then exact whitespace-stripped match.</p>
-                </div>
-            `;
+                <div class="ast-viewport" id="vp_${uid}">${svg}</div>
+                ${legendHtml}
+            </div>`;
+        }
+
+        // Zoom state per SVG
+        const zoomState = {};
+        function astZoom(svgId, action) {
+            if (!zoomState[svgId]) zoomState[svgId] = 1;
+            if (action === 'in') zoomState[svgId] = Math.min(zoomState[svgId] * 1.3, 3);
+            else if (action === 'out') zoomState[svgId] = Math.max(zoomState[svgId] / 1.3, 0.3);
+            else if (action === 'fit') zoomState[svgId] = 1;
+            const svg = document.getElementById(svgId);
+            if (svg) svg.style.transform = `scale(${zoomState[svgId]})`;
+        }
+        // Mouse wheel zoom on ast-viewport
+        document.addEventListener('wheel', function(e) {
+            const vp = e.target.closest('.ast-viewport');
+            if (!vp) return;
+            e.preventDefault();
+            const svg = vp.querySelector('svg');
+            if (!svg) return;
+            const id = svg.id;
+            if (!zoomState[id]) zoomState[id] = 1;
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            zoomState[id] = Math.min(Math.max(zoomState[id] * delta, 0.2), 4);
+            svg.style.transform = `scale(${zoomState[id]})`;
+        }, { passive: false });
+
+        /* ═══════════════════════════════════════════════════
+           PHASE DETAIL MODALS
+           ═══════════════════════════════════════════════════ */
+        function showModal(id) {
+            if (id === 'codegen') {
+                document.getElementById('modalTitle').textContent = 'Generated ' + state.targetLang.toUpperCase() + ' Code';
+                document.getElementById('modalBody').innerHTML = `<pre>${escapeHtml(state.generatedCode)}</pre>`;
+                document.getElementById('modalOverlay').style.display = 'flex'; return;
+            }
+            const res = state.results[id];
+            if (!res || res.status === 'blocked') return;
+            const names = { preprocessor:'Preprocessor', lexer:'Lexer', parser:'Parser (AST)', semantic:'Semantic Analyzer', ir:'IR Generator' };
+            document.getElementById('modalTitle').textContent = names[id] + ' — Output';
+            const body = document.getElementById('modalBody');
+            if (res.status === 'error') {
+                body.innerHTML = (res.errors || []).map(err => `
+                    <div class="error-block">
+                        <div class="err-location">Line ${err.line||'?'}, Col ${err.col||'?'}</div>
+                        <div class="err-message">${escapeHtml(err.message)}</div>
+                    </div>`).join('');
+            } else {
+                switch(id) {
+                    case 'preprocessor':
+                        const c = res.comments && res.comments.length ? res.comments.join('\n') : 'No comments found in source';
+                        body.innerHTML = `<div class="summary-cards">
+                            <div class="summary-card"><div class="num">${(res.comments||[]).length}</div><div class="lbl">Comments Stripped</div></div>
+                        </div><pre>${escapeHtml(c)}</pre>`;
+                        break;
+
+                    case 'lexer':
+                        const toks = res.tokens || [];
+                        const tokCounts = {};
+                        toks.forEach(t => { tokCounts[t.type] = (tokCounts[t.type]||0) + 1; });
+                        let tokSummary = `<div class="summary-cards">
+                            <div class="summary-card"><div class="num">${toks.length}</div><div class="lbl">Total Tokens</div></div>
+                            <div class="summary-card"><div class="num">${Object.keys(tokCounts).length}</div><div class="lbl">Unique Types</div></div>
+                        </div>`;
+                        let tokHtml = tokSummary + `<div class="token-pills">${toks.map(t =>
+                            `<span class="pill ${t.type}" title="${t.type}">${escapeHtml(String(t.value)||t.type)}</span>`
+                        ).join('')}</div>`;
+                        // Token color legend
+                        tokHtml += `<div class="color-legend" style="margin-top:0.75rem;border:1px solid var(--border);border-radius:6px;">
+                            <div class="legend-item"><span class="legend-dot" style="background:var(--tok-keyword)"></span>Keywords (if, for, int, return...)</div>
+                            <div class="legend-item"><span class="legend-dot" style="background:var(--tok-name)"></span>Identifiers (variable/function names)</div>
+                            <div class="legend-item"><span class="legend-dot" style="background:var(--tok-number)"></span>Numbers (integer/float literals)</div>
+                            <div class="legend-item"><span class="legend-dot" style="background:var(--tok-operator)"></span>Operators (+, -, *, =, <...)</div>
+                            <div class="legend-item"><span class="legend-dot" style="background:var(--tok-string)"></span>Strings ("hello", format strings)</div>
+                            <div class="legend-item"><span class="legend-dot" style="background:var(--tok-indent)"></span>Indentation (Python indent/dedent)</div>
+                            <div class="legend-item"><span class="legend-dot" style="background:#6b7280"></span>Punctuation (; , ( ) { } [ ])</div>
+                        </div>`;
+                        body.innerHTML = tokHtml;
+                        break;
+
+                    case 'parser':
+                        let parserHtml = '';
+                        if (res.ast_tree) {
+                            parserHtml += '<div style="margin-bottom:0.75rem;"><span style="font-size:0.7rem;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;">AST Tree Visualization</span><span style="font-size:0.6rem;color:var(--text-dim);margin-left:0.5rem;">Scroll to zoom • Drag to pan</span></div>';
+                            parserHtml += renderAstTree(res.ast_tree, res.ast_legend);
+                        }
+                        parserHtml += '<div style="margin-top:1rem;"><span style="font-size:0.65rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;">Raw AST Text</span></div>';
+                        parserHtml += `<pre style="margin-top:0.4rem;">${escapeHtml(res.ast_text)}</pre>`;
+                        body.innerHTML = parserHtml;
+                        break;
+
+                    case 'semantic':
+                        const sym = res.symbol_table || {};
+                        const summary = res.summary || {};
+                        let semHtml = `<div class="summary-cards">
+                            <div class="summary-card"><div class="num">${summary.total_symbols || 0}</div><div class="lbl">Symbols</div></div>
+                            <div class="summary-card"><div class="num">${(summary.functions||[]).length}</div><div class="lbl">Functions</div></div>
+                            <div class="summary-card"><div class="num">${(summary.global_vars||[]).length}</div><div class="lbl">Global Vars</div></div>
+                            <div class="summary-card"><div class="num">${(summary.local_vars||[]).length}</div><div class="lbl">Local Vars</div></div>
+                        </div>`;
+                        if (Object.keys(summary.statement_types || {}).length) {
+                            semHtml += '<div style="font-size:0.65rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.4rem;">Statement Types Found</div>';
+                            semHtml += '<div class="token-pills" style="margin-bottom:0.75rem;">';
+                            for (const [k,v] of Object.entries(summary.statement_types)) {
+                                semHtml += `<span class="pill NAME">${k}: ${v}</span>`;
+                            }
+                            semHtml += '</div>';
+                        }
+                        const keys = Object.keys(sym);
+                        if (keys.length > 0) {
+                            semHtml += `<table class="sym-table"><thead><tr><th>Symbol</th><th>Kind</th><th>Type</th><th>Scope</th><th>Line</th></tr></thead><tbody>`;
+                            keys.forEach(k => {
+                                const v = sym[k];
+                                semHtml += `<tr><td style="color:var(--text-primary);font-weight:500">${escapeHtml(k)}</td>
+                                    <td><span class="sym-kind ${v.kind}">${v.kind}</span></td>
+                                    <td>${v.type || '—'}</td><td>${v.scope || '—'}</td><td>${v.line || '—'}</td></tr>`;
+                            });
+                            semHtml += '</tbody></table>';
+                        } else {
+                            semHtml += `<div style="padding:1rem;text-align:center;color:var(--text-dim);font-size:0.8rem;">
+                                <div style="font-size:1.5rem;margin-bottom:0.4rem;">✓</div>
+                                No variables or functions declared.<br>Program uses only built-in statements (print, etc.).<br>
+                                <span style="font-size:0.7rem;">Semantic analysis passed — all types consistent.</span>
+                            </div>`;
+                        }
+                        body.innerHTML = semHtml;
+                        break;
+
+                    case 'ir':
+                        let irHtml = '';
+                        if (res.ir_tree) {
+                            irHtml += '<div style="margin-bottom:0.75rem;"><span style="font-size:0.7rem;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;">IR Tree — Language-Neutral AST</span><span style="font-size:0.6rem;color:var(--text-dim);margin-left:0.5rem;">Scroll to zoom • Drag to pan</span></div>';
+                            irHtml += renderAstTree(res.ir_tree);
+                        }
+                        irHtml += '<div style="margin-top:1rem;"><span style="font-size:0.65rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em;">IR Dictionary</span></div>';
+                        irHtml += `<pre style="margin-top:0.4rem;max-height:300px;overflow-y:auto;">${escapeHtml(JSON.stringify(res.ir_dict, null, 2))}</pre>`;
+                        body.innerHTML = irHtml;
+                        break;
+                }
+            }
             document.getElementById('modalOverlay').style.display = 'flex';
         }
 
-        function closeModal() {
-            document.getElementById('modalOverlay').style.display = 'none';
+        function closeModal(e) {
+            if (!e || e.target === document.getElementById('modalOverlay'))
+                document.getElementById('modalOverlay').style.display = 'none';
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+        function escapeHtml(str) {
+            const d = document.createElement('div'); d.textContent = str; return d.innerHTML;
         }
 
         initPhases();
