@@ -6,9 +6,9 @@ STATUS_KEY: [ ]=not started  [~]=in progress  [x]=complete  [!]=blocked  [E]=has
 
 ---
 
-OVERALL: 8/9 phases complete
-LAST_COMPLETED_PHASE: Phase 7
-LAST_UPDATED: 2026-04-25
+OVERALL: 9/9 phases complete
+LAST_COMPLETED_PHASE: Phase 8
+LAST_UPDATED: 2026-04-26
 
 ---
 
@@ -17,8 +17,8 @@ Status: [x]
 Files:
   [x] errors.py          target:55   actual:86
   [x] ast_nodes.py       target:175  actual:326
-  [x] lexer/tokens.py    target:95   actual:132
-Test: python -c "from errors import CompilerError,Phase; from ast_nodes import Program; from lexer.tokens import Token,TokenType; print('OK')"
+  [x] lexer/tokens.py    target:95   actual:133
+Test: python -c "from transpiler.errors import CompilerError,Phase; from transpiler.ast_nodes import Program; from transpiler.lexer.tokens import Token,TokenType; print('OK')"
 Test result: PASS ✅
 Completed: 2026-04-25
 
@@ -56,9 +56,9 @@ Completed: 2026-04-25
 ## PHASE 3 — Parser
 Status: [x]  |  Depends: Phase 2
 Files:
-  [x] parser/python_parser.py  target:400  actual:384
-  [x] parser/c_parser.py       target:380  actual:396
-  [x] parser/cpp_parser.py     target:110  actual:122
+  [x] parser/python_parser.py  target:400  actual:399
+  [x] parser/c_parser.py       target:380  actual:537
+  [x] parser/cpp_parser.py     target:110  actual:128
 Test:
   input:  tokens from "if x > 0:\n    return x\n"
   expect: Program containing IfStmt with BinaryOp and ReturnStmt
@@ -70,7 +70,7 @@ Completed: 2026-04-25
 ## PHASE 4 — Semantic Analyzer
 Status: [x]  |  Depends: Phase 3
 Files:
-  [x] semantic/analyzer.py  target:320  actual:365
+  [x] semantic/analyzer.py  target:320  actual:379
 Test PASS:
   input:  "def add(x,y):\n    return x+y\nresult=add(3,4)\nprint(result)\n"
   expect: no errors, symbol table has add/x/y/result
@@ -85,7 +85,7 @@ Completed: 2026-04-25
 ## PHASE 5 — IR Generator
 Status: [x]  |  Depends: Phase 4
 Files:
-  [x] ir/ir_generator.py  target:200  actual:294
+  [x] ir/ir_generator.py  target:200  actual:297
 Test:
   input:  validated Program from Phase 4 PASS test
   expect: ir.generate() returns same Program, ir.to_dict() returns valid dict
@@ -97,9 +97,9 @@ Completed: 2026-04-25
 ## PHASE 6 — Code Generators
 Status: [x]  |  Depends: Phase 5
 Files:
-  [x] codegen/python_generator.py  target:250  actual:219
-  [x] codegen/c_generator.py       target:280  actual:272
-  [x] codegen/cpp_generator.py     target:110  actual:54
+  [x] codegen/python_generator.py  target:250  actual:268
+  [x] codegen/c_generator.py       target:280  actual:296
+  [x] codegen/cpp_generator.py     target:110  actual:66
 Test round-trip:
   input:  "def add(x,y):\n    return x+y\nprint(add(3,4))\n"
   expect: python_generator output when exec'd prints "7"
@@ -114,7 +114,7 @@ Completed: 2026-04-26
 ## PHASE 7 — Validator
 Status: [x]  |  Depends: Phase 6
 Files:
-  [x] validator/validator.py  target:190  actual:244
+  [x] validator/validator.py  target:190  actual:245
 Test PASS:  Python print(7) vs C printf("%d\n",7)  → passed:True
 Test FAIL:  Python print(7) vs C printf("%d\n",8)  → passed:False
 Test result: PASS ✅
@@ -125,8 +125,9 @@ Completed: 2026-04-26
 ## PHASE 8 — Web UI
 Status: [x]  |  Depends: Phase 7
 Files:
-  [x] main.py              target:130  actual:161
-  [x] frontend/index.html  target:550  actual:516
+  [x] main.py              target:130  actual:253
+  [x] frontend/index.html  target:550  actual:932
+  [x] visualizer/ast_visualizer.py target:130 actual:175
 Manual checklist:
   [x] Editor left 40%, phases right 60%
   [x] Token pills show TYPE:value with correct colors
@@ -146,21 +147,21 @@ Completed: 2026-04-26
 |-------------------------------|--------|--------|---------|
 | errors.py                     | 55     | 86     | ✅ done |
 | ast_nodes.py                  | 175    | 326    | ✅ done |
-| lexer/tokens.py               | 95     | 132    | ✅ done |
+| lexer/tokens.py               | 95     | 133    | ✅ done |
 | preprocessor/preprocessor.py  | 150    | 218    | ✅ done |
 | lexer/python_lexer.py         | 260    | 294    | ✅ done |
 | lexer/c_lexer.py              | 225    | 257    | ✅ done |
 | lexer/cpp_lexer.py            | 85     | 64     | ✅ done |
-| parser/python_parser.py       | 400    | 384    | ✅ done |
-| parser/c_parser.py            | 380    | 396    | ✅ done |
-| parser/cpp_parser.py          | 110    | 122    | ✅ done |
-| semantic/analyzer.py          | 320    | 365    | ✅ done |
-| ir/ir_generator.py            | 200    | 294    | ✅ done |
-| codegen/python_generator.py   | 250    | 219    | ✅ done |
-| codegen/c_generator.py        | 280    | 272    | ✅ done |
-| codegen/cpp_generator.py      | 110    | 54     | ✅ done |
-| validator/validator.py        | 190    | 244    | ✅ done |
-| visualizer/ast_visualizer.py  | 130    | 0      | pending |
-| main.py                       | 130    | 161    | ✅ done |
-| frontend/index.html           | 550    | 516    | ✅ done |
-| **TOTAL**                     | **3875**| **4060**| —       |
+| parser/python_parser.py       | 400    | 399    | ✅ done |
+| parser/c_parser.py            | 380    | 537    | ✅ done |
+| parser/cpp_parser.py          | 110    | 128    | ✅ done |
+| semantic/analyzer.py          | 320    | 379    | ✅ done |
+| ir/ir_generator.py            | 200    | 297    | ✅ done |
+| codegen/python_generator.py   | 250    | 268    | ✅ done |
+| codegen/c_generator.py        | 280    | 296    | ✅ done |
+| codegen/cpp_generator.py      | 110    | 66     | ✅ done |
+| validator/validator.py        | 190    | 245    | ✅ done |
+| visualizer/ast_visualizer.py  | 130    | 175    | ✅ done |
+| main.py                       | 130    | 253    | ✅ done |
+| frontend/index.html           | 550    | 932    | ✅ done |
+| **TOTAL (Source Only)**       | **3875**| **5353**| —       |
