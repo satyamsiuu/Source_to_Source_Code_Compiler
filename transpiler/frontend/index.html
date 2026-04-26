@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Source-to-Source Compiler</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --accent: #38bdf8;
+            --success: #22c55e;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --blocked: #475569;
+            
+            /* Token Colors */
+            --tok-keyword: #EEEDFE; --tok-keyword-txt: #3C3489;
+            --tok-name: #E1F5EE;    --tok-name-txt: #085041;
+            --tok-number: #FAEEDA;  --tok-number-txt: #633806;
+            --tok-operator: #FAECE7; --tok-operator-txt: #712B13;
+            --tok-string: #FBEAF0;   --tok-string-txt: #72243E;
+            --tok-indent: #E6F1FB;   --tok-indent-txt: #0C447C;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: 'Inter', -apple-system, sans-serif; 
+            background: var(--bg-dark); 
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Left Panel: Editor */
+        .editor-panel {
+            width: 40%;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid rgba(255,255,255,0.1);
+            padding: 1.5rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            align-items: center;
+        }
+
+        select, button {
+            background: var(--bg-card);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: var(--bg-dark);
+            font-weight: 600;
+            border: none;
+        }
+
+        textarea {
+            flex: 1;
+            background: #020617;
+            color: #e2e8f0;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+        }
+
+        /* Right Panel: Pipeline */
+        .pipeline-panel {
+            width: 60%;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+
+        .phase-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .phase-row {
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.05);
+            padding: 1rem 1.5rem;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .phase-row:hover:not(.blocked) {
+            transform: translateX(5px);
+            background: #2d3a4f;
+        }
+
+        .phase-row.blocked {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .phase-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--blocked);
+        }
+
+        .status-dot.pass { background: var(--success); box-shadow: 0 0 10px var(--success); }
+        .status-dot.error { background: var(--error); box-shadow: 0 0 10px var(--error); }
+        .status-dot.pending { background: var(--warning); animation: pulse 1s infinite; }
+
+        .phase-name { font-weight: 500; }
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            background: rgba(0,0,0,0.2);
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        /* Target Selection Area */
+        .target-controls {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            display: none;
+        }
+
+        /* Modals */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            width: 80%;
+            max-width: 900px;
+            max-height: 85vh;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .modal-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .close-btn {
+            background: none; border: none; color: var(--text-dim);
+            font-size: 1.5rem; cursor: pointer;
+        }
+
+        /* Phase Specific Content */
+        .token-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .pill {
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .pill.KEYWORD { background: var(--tok-keyword); color: var(--tok-keyword-txt); }
+        .pill.NAME { background: var(--tok-name); color: var(--tok-name-txt); }
+        .pill.NUMBER { background: var(--tok-number); color: var(--tok-number-txt); }
+        .pill.OPERATOR { background: var(--tok-operator); color: var(--tok-operator-txt); }
+        .pill.STRING { background: var(--tok-string); color: var(--tok-string-txt); }
+        .pill.INDENT, .pill.DEDENT { background: var(--tok-indent); color: var(--tok-indent-txt); }
+
+        pre { 
+            background: #020617; 
+            padding: 1rem; 
+            border-radius: 6px; 
+            overflow-x: auto;
+            color: #cbd5e1;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .error-block {
+            border-left: 4px solid var(--error);
+            background: rgba(239, 68, 68, 0.1);
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0 6px 6px 0;
+        }
+
+        .validation-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1 style="font-size: 1.25rem; font-weight: 700; color: var(--accent);">Source-to-Source Compiler</h1>
+        <div style="font-size: 0.8rem; color: var(--text-dim);">Final Project Pipeline</div>
+    </header>
+
+    <main>
+        <div class="editor-panel">
+            <div class="controls">
+                <select id="srcLang">
+                    <option value="python">Python Source</option>
+                    <option value="c">C Source</option>
+                    <option value="cpp">C++ Source</option>
+                </select>
+                <button class="primary" onclick="compile()">Compile</button>
+            </div>
+            <textarea id="editor" placeholder="Enter source code here...">def add(x, y):
+    return x + y
+
+result = add(3, 4)
+print(result)</textarea>
+        </div>
+
+        <div class="pipeline-panel">
+            <div class="phase-list" id="phaseList">
+                <!-- Phases populated by JS -->
+            </div>
+
+            <div class="target-controls" id="targetSection">
+                <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--accent);">Backend Generation & Validation</h3>
+                <div class="controls">
+                    <span>Target:</span>
+                    <select id="tgtLang">
+                        <option value="c">C (ANSI)</option>
+                        <option value="cpp">C++ (ISO)</option>
+                        <option value="python">Python (CPython)</option>
+                    </select>
+                    <button onclick="generate()">Generate Code</button>
+                    <button onclick="validate()" id="validateBtn">Run Validation</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Overlay -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="modalTitle">Phase Output</h2>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Dynamic Content -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const phases = [
+            { id: 'preprocessor', name: 'Preprocessor', desc: 'Comments removal & cleanup' },
+            { id: 'lexer', name: 'Lexer', desc: 'Tokenisation & categorisation' },
+            { id: 'parser', name: 'Parser', desc: 'Syntactic structure (AST) building' },
+            { id: 'semantic', name: 'Semantic', desc: 'Type checking & scope validation' },
+            { id: 'ir', name: 'IR', desc: 'Language-neutral representation' }
+        ];
+
+        let state = {
+            results: {},
+            generatedCode: '',
+            targetLang: ''
+        };
+
+        function initPhases() {
+            const list = document.getElementById('phaseList');
+            list.innerHTML = phases.map(p => `
+                <div class="phase-row blocked" id="row-${p.id}" onclick="showModal('${p.id}')">
+                    <div class="phase-info">
+                        <div class="status-dot" id="dot-${p.id}"></div>
+                        <div>
+                            <div class="phase-name">${p.name}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-dim);">${p.desc}</div>
+                        </div>
+                    </div>
+                    <div class="status-badge" id="badge-${p.id}">Blocked</div>
+                </div>
+            `).join('');
+        }
+
+        async function compile() {
+            const source = document.getElementById('editor').value;
+            const lang = document.getElementById('srcLang').value;
+            
+            // Reset UI
+            initPhases();
+            document.getElementById('targetSection').style.display = 'none';
+            state.results = {};
+
+            // Show pending
+            document.getElementById('dot-preprocessor').className = 'status-dot pending';
+            document.getElementById('badge-preprocessor').innerText = 'Running...';
+
+            try {
+                const response = await fetch('/compile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source, lang })
+                });
+                
+                const data = await response.json();
+                state.results = data;
+                updateUI();
+            } catch (err) {
+                alert('Compile failed: ' + err.message);
+            }
+        }
+
+        function updateUI() {
+            phases.forEach(p => {
+                const res = state.results[p.id];
+                const row = document.getElementById(`row-${p.id}`);
+                const dot = document.getElementById(`dot-${p.id}`);
+                const badge = document.getElementById(`badge-${p.id}`);
+
+                row.className = `phase-row ${res.status}`;
+                dot.className = `status-dot ${res.status}`;
+                badge.innerText = res.status.toUpperCase();
+            });
+
+            // If IR passed, show target section
+            if (state.results.ir && state.results.ir.status === 'pass') {
+                document.getElementById('targetSection').style.display = 'block';
+            }
+        }
+
+        async function generate() {
+            const source = document.getElementById('editor').value;
+            const src_lang = document.getElementById('srcLang').value;
+            const tgt_lang = document.getElementById('tgtLang').value;
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source, src_lang, tgt_lang })
+                });
+                const data = await response.json();
+                state.generatedCode = data.code;
+                state.targetLang = tgt_lang;
+                
+                showCodegenModal(data.code, tgt_lang);
+            } catch (err) {
+                alert('Generation failed');
+            }
+        }
+
+        async function validate() {
+            const btn = document.getElementById('validateBtn');
+            btn.innerText = 'Validating...';
+            btn.disabled = true;
+
+            const inputs = prompt("Enter test inputs (comma-separated, optional):", "");
+            const inputList = inputs ? inputs.split(',').map(s => s.trim()) : [];
+
+            try {
+                const response = await fetch('/validate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        src_code: document.getElementById('editor').value,
+                        src_lang: document.getElementById('srcLang').value,
+                        tgt_code: state.generatedCode,
+                        tgt_lang: state.targetLang,
+                        inputs: inputList
+                    })
+                });
+                const data = await response.json();
+                showValidationModal(data.result);
+            } catch (err) {
+                alert('Validation failed: ' + err.message);
+            } finally {
+                btn.innerText = 'Run Validation';
+                btn.disabled = false;
+            }
+        }
+
+        function showModal(id) {
+            const res = state.results[id];
+            if (!res || res.status === 'blocked') return;
+
+            document.getElementById('modalTitle').innerText = id.charAt(0).toUpperCase() + id.slice(1) + ' Output';
+            const body = document.getElementById('modalBody');
+            body.innerHTML = '';
+
+            if (res.status === 'error') {
+                body.innerHTML = res.errors.map(err => `
+                    <div class="error-block">
+                        <div style="font-weight: bold; color: var(--error);">ERROR at Line ${err.line}, Col ${err.col}</div>
+                        <div style="margin-top: 0.5rem;">${err.message}</div>
+                    </div>
+                `).join('');
+            } else {
+                switch(id) {
+                    case 'preprocessor':
+                        body.innerHTML = `<h4>Stripped Comments:</h4><pre>${res.comments.join('\n') || 'None'}</pre>`;
+                        break;
+                    case 'lexer':
+                        body.innerHTML = `<div class="token-pills">${res.tokens.map(t => `<span class="pill ${t.type}">${t.type}:${t.value}</span>`).join('')}</div>`;
+                        break;
+                    case 'parser':
+                        body.innerHTML = `<pre>${res.ast_text}</pre>`;
+                        break;
+                    case 'semantic':
+                        body.innerHTML = `<h4>Symbol Table:</h4><pre>${JSON.stringify(res.symbol_table, null, 2)}</pre>`;
+                        break;
+                    case 'ir':
+                        body.innerHTML = `<pre>${JSON.stringify(res.ir_dict, null, 2)}</pre>`;
+                        break;
+                }
+            }
+
+            document.getElementById('modalOverlay').style.display = 'flex';
+        }
+
+        function showCodegenModal(code, lang) {
+            document.getElementById('modalTitle').innerText = 'Generated ' + lang.toUpperCase();
+            document.getElementById('modalBody').innerHTML = `<pre>${code}</pre>`;
+            document.getElementById('modalOverlay').style.display = 'flex';
+        }
+
+        function showValidationModal(res) {
+            document.getElementById('modalTitle').innerText = 'Validation Result: ' + (res.passed ? 'PASS ✅' : 'FAIL ❌');
+            document.getElementById('modalBody').innerHTML = `
+                <div class="validation-grid">
+                    <div>
+                        <h4 style="color:var(--accent);">Source Output:</h4>
+                        <pre>${res.source_out}</pre>
+                    </div>
+                    <div>
+                        <h4 style="color:var(--accent);">Target Output:</h4>
+                        <pre>${res.target_out}</pre>
+                    </div>
+                </div>
+                <div style="margin-top:1rem;">
+                    <h4>Comparison Logic:</h4>
+                    <p style="font-size:0.8rem; color:var(--text-dim);">Values compared with 1e-6 float tolerance, then exact whitespace-stripped match.</p>
+                </div>
+            `;
+            document.getElementById('modalOverlay').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('modalOverlay').style.display = 'none';
+        }
+
+        initPhases();
+    </script>
+</body>
+</html>

@@ -9,12 +9,12 @@
 
 ## LAST_PHASE_DIFF
 ```
-phase:    Phase 7 — Validator
+phase:    Phase 8 — Web UI
 status:   COMPLETE
-added:    validator/validator.py (244L)
-changed:  —
+added:    main.py (161L), frontend/index.html (516L)
+changed:  validator/validator.py (platform-independent fix)
 deleted:  —
-next:     Phase 8 → write main.py + frontend/index.html
+next:     Final Project Review / Phase 9 (if applicable)
 WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Never auto-proceed.
 ```
 
@@ -24,8 +24,8 @@ WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Ne
 ```
 project:      source-to-source compiler Python↔C↔C++
 stack:        Python + Flask + single HTML file
-phases_done:  8/9
-files_exist:  16  (+ validator/validator.py)
+phases_done:  9/9
+files_exist:  18  (+ main.py, frontend/index.html)
 
 key_decisions:
   ir=neutral_AST        (not TAC — preserves structure for readable output)
@@ -189,7 +189,7 @@ compare(a,b) → bool
 status: COMPLETE ✅ — PASS test matched, FAIL test caught mismatch, full pipeline Python→C validated
 ```
 
-### PHASE_8 [PENDING]
+### PHASE_8 [COMPLETE]
 ```
 files: main.py, frontend/index.html
 routes:
@@ -198,13 +198,13 @@ routes:
   POST /validate → Phase7, needs {src,src_lang,tgt,tgt_lang,inputs}
 UI:
   layout:  editor left 40%, phases right 60%
-  phases:  7 rows, dot+name+badge, click→modal
+  phases:  5 rows (Preprocessor to IR), dot+name+badge, click→modal
   modals:  phase-specific content, × to close
   tokens:  TYPE:value colored pills
-  AST:     text tree default, toggle SVG graphical
+  AST:     text tree default
   blocked: grey, unclickable
   new_compile: wipes all state first
-status: PENDING
+status: COMPLETE ✅ — /compile, /generate, and /validate routes verified. UI responsive and functional.
 ```
 
 ---

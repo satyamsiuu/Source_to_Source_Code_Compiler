@@ -81,10 +81,11 @@ class Validator:
         return runner(code, inputs, label)
 
     def _run_python(self, code: str, inputs: str, label: str) -> str:
-        """Execute Python code via subprocess python3."""
+        """Execute Python code via subprocess."""
+        import sys
         try:
             result = subprocess.run(
-                ["python3", "-c", code],
+                [sys.executable, "-c", code],
                 input=inputs, capture_output=True, text=True,
                 timeout=EXEC_TIMEOUT)
             if result.returncode != 0:
@@ -99,7 +100,7 @@ class Validator:
             return ""
         except FileNotFoundError:
             self.errors.append(CompilerError(Phase.VALIDATOR,
-                "python3 not found — cannot validate Python code"))
+                "Python interpreter not found — cannot validate Python code"))
             return ""
 
     def _run_c(self, code: str, inputs: str, label: str) -> str:

@@ -123,20 +123,21 @@ Completed: 2026-04-26
 ---
 
 ## PHASE 8 — Web UI
-Status: [ ]  |  Depends: Phase 7
+Status: [x]  |  Depends: Phase 7
 Files:
-  [ ] main.py              target:130  actual:0
-  [ ] frontend/index.html  target:550  actual:0
+  [x] main.py              target:130  actual:161
+  [x] frontend/index.html  target:550  actual:516
 Manual checklist:
-  [ ] Editor left 40%, phases right 60%
-  [ ] Token pills show TYPE:value with correct colors
-  [ ] Parser modal: text tree + graphical SVG toggle
-  [ ] Blocked phases unclickable
-  [ ] New compile wipes all previous phase data
-  [ ] Target selector appears only after IR passes
-  [ ] Validator shows side-by-side stdout + PASS/FAIL
-  [ ] Error modal shows line/col/snippet
-Completed: —
+  [x] Editor left 40%, phases right 60%
+  [x] Token pills show TYPE:value with correct colors
+  [x] Parser modal: text tree + graphical SVG toggle
+  [x] Blocked phases unclickable
+  [x] New compile wipes all previous phase data
+  [x] Target selector appears only after IR passes
+  [x] Validator shows side-by-side stdout + PASS/FAIL
+  [x] Error modal shows line/col/snippet
+Test result: PASS ✅
+Completed: 2026-04-26
 
 ---
 
@@ -160,6 +161,6 @@ Completed: —
 | codegen/cpp_generator.py      | 110    | 54     | ✅ done |
 | validator/validator.py        | 190    | 244    | ✅ done |
 | visualizer/ast_visualizer.py  | 130    | 0      | pending |
-| main.py                       | 130    | 0      | pending |
-| frontend/index.html           | 550    | 0      | pending |
-| **TOTAL**                     | **3875**| **0** | —       |
+| main.py                       | 130    | 161    | ✅ done |
+| frontend/index.html           | 550    | 516    | ✅ done |
+| **TOTAL**                     | **3875**| **4060**| —       |
