@@ -9,12 +9,12 @@
 
 ## LAST_PHASE_DIFF
 ```
-phase:    Phase 5 — IR Generator
+phase:    Phase 7 — Validator
 status:   COMPLETE
-added:    ir/ir_generator.py (294L)
+added:    validator/validator.py (244L)
 changed:  —
 deleted:  —
-next:     Phase 6 → write codegen/python_generator.py, c_generator.py, cpp_generator.py
+next:     Phase 8 → write main.py + frontend/index.html
 WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Never auto-proceed.
 ```
 
@@ -24,8 +24,8 @@ WORKFLOW: ALWAYS ask user "Ready for Phase N?" before starting any new phase. Ne
 ```
 project:      source-to-source compiler Python↔C↔C++
 stack:        Python + Flask + single HTML file
-phases_done:  6/9
-files_exist:  12  (+ ir/ir_generator.py)
+phases_done:  8/9
+files_exist:  16  (+ validator/validator.py)
 
 key_decisions:
   ir=neutral_AST        (not TAC — preserves structure for readable output)
@@ -170,7 +170,7 @@ CppGenerator(CGenerator):
   prepends #include <iostream>\nusing namespace std;
   PrintStmt   → "cout << v1 << \" \" << v2 << endl;"
   InputStmt   → "cin >> name;"
-status: PENDING
+status: COMPLETE ✅ — Python round-trip prints "7", C gcc compile+run prints "7", CppGenerator inherits CGenerator
 ```
 
 ### PHASE_7 [PENDING]
@@ -186,7 +186,7 @@ run_cpp(code,inputs)    → str   [g++ compile + run]
 compare(a,b) → bool
   try float parse both → compare with tolerance 1e-6
   fallback: strip whitespace + exact match
-status: PENDING
+status: COMPLETE ✅ — PASS test matched, FAIL test caught mismatch, full pipeline Python→C validated
 ```
 
 ### PHASE_8 [PENDING]

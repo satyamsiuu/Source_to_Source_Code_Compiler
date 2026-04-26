@@ -6,8 +6,8 @@ STATUS_KEY: [ ]=not started  [~]=in progress  [x]=complete  [!]=blocked  [E]=has
 
 ---
 
-OVERALL: 6/9 phases complete
-LAST_COMPLETED_PHASE: Phase 5
+OVERALL: 8/9 phases complete
+LAST_COMPLETED_PHASE: Phase 7
 LAST_UPDATED: 2026-04-25
 
 ---
@@ -95,30 +95,30 @@ Completed: 2026-04-25
 ---
 
 ## PHASE 6 — Code Generators
-Status: [ ]  |  Depends: Phase 5
+Status: [x]  |  Depends: Phase 5
 Files:
-  [ ] codegen/python_generator.py  target:250  actual:0
-  [ ] codegen/c_generator.py       target:280  actual:0
-  [ ] codegen/cpp_generator.py     target:110  actual:0
+  [x] codegen/python_generator.py  target:250  actual:219
+  [x] codegen/c_generator.py       target:280  actual:272
+  [x] codegen/cpp_generator.py     target:110  actual:54
 Test round-trip:
   input:  "def add(x,y):\n    return x+y\nprint(add(3,4))\n"
   expect: python_generator output when exec'd prints "7"
 Test C output:
   input:  same program
   expect: c_generator produces valid C, gcc compiles it, runs, prints "7"
-Test result: PENDING
-Completed: —
+Test result: PASS ✅
+Completed: 2026-04-26
 
 ---
 
 ## PHASE 7 — Validator
-Status: [ ]  |  Depends: Phase 6
+Status: [x]  |  Depends: Phase 6
 Files:
-  [ ] validator/validator.py  target:190  actual:0
+  [x] validator/validator.py  target:190  actual:244
 Test PASS:  Python print(7) vs C printf("%d\n",7)  → passed:True
 Test FAIL:  Python print(7) vs C printf("%d\n",8)  → passed:False
-Test result: PENDING
-Completed: —
+Test result: PASS ✅
+Completed: 2026-04-26
 
 ---
 
@@ -155,10 +155,10 @@ Completed: —
 | parser/cpp_parser.py          | 110    | 122    | ✅ done |
 | semantic/analyzer.py          | 320    | 365    | ✅ done |
 | ir/ir_generator.py            | 200    | 294    | ✅ done |
-| codegen/python_generator.py   | 250    | 0      | pending |
-| codegen/c_generator.py        | 280    | 0      | pending |
-| codegen/cpp_generator.py      | 110    | 0      | pending |
-| validator/validator.py        | 190    | 0      | pending |
+| codegen/python_generator.py   | 250    | 219    | ✅ done |
+| codegen/c_generator.py        | 280    | 272    | ✅ done |
+| codegen/cpp_generator.py      | 110    | 54     | ✅ done |
+| validator/validator.py        | 190    | 244    | ✅ done |
 | visualizer/ast_visualizer.py  | 130    | 0      | pending |
 | main.py                       | 130    | 0      | pending |
 | frontend/index.html           | 550    | 0      | pending |

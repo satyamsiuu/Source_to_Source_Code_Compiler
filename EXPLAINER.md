@@ -551,54 +551,122 @@ of `generate()` is validation, not transformation.
 ---
 
 ## PHASE 6 — Code Generators
-[Agent fills this after Phase 6 completes]
+Three generators convert the language-neutral AST to target source code:
+PythonGenerator, CGenerator (extended by CppGenerator).
 
 **What a code generator does — tree to text**
-[fill after phase 6]
+The code generator walks the AST recursively and emits text in the target language.
+Each AST node type has a corresponding generation method. `VarDecl(name='x',
+data_type=INT, value=Literal(5, INT))` becomes `"x = 5"` in Python or `"int x = 5;"`
+in C. The generator doesn't need to understand the source language — it only reads
+the language-neutral AST. This is why N parsers + M generators gives N×M translations
+with only N+M code paths, instead of N×M separate translators.
 
 **How indent_level works in python_generator**
-[fill after phase 6]
+Python uses indentation for blocks, not braces. `indent_level` is an integer counter
+starting at 0. Each `_emit(line)` prepends `"    " * indent_level` to the line.
+When entering a block (function body, if body, for body), we increment indent_level.
+When exiting, we decrement. This produces correct Python indentation:
+```
+indent_level=0: def add(x, y):
+indent_level=1:     return (x + y)
+indent_level=0: print(add(3, 4))
+```
+CGenerator uses the same counter, but for cosmetic formatting — C doesn't require it.
 
 **Why python_generator omits type annotations**
-[fill after phase 6]
+Python is dynamically typed: `x = 5` is valid Python, `int x = 5` is not. The AST
+stores types in VarDecl.data_type, but the Python generator ignores them — it only
+uses the name and value. The C generator reads data_type to emit `int x = 5;`. This
+is an example of the same AST node being rendered differently per target language.
 
 **How build_format_string works in c_generator**
-[fill after phase 6]
+`printf` needs a format string: `printf("%d %f\n", x, y)`. The generator builds it
+dynamically from the PrintStmt.values list. For each value, `_infer_type()` determines
+its DataType. FMT_SPEC maps: INT→`%d`, FLOAT→`%f`, BOOL→`%d`, STR→`%s`. The format
+specifiers are joined with spaces and `\n` is appended. The actual values are passed
+as comma-separated arguments after the format string.
 
 **Why #include is added automatically by c_generator**
-[fill after phase 6]
+C requires `#include <stdio.h>` for printf/scanf. The user's source code (Python)
+has no includes. The generator's `_emit_preamble()` adds them automatically. This
+is a target-language detail that doesn't exist in the AST. CppGenerator overrides
+this to emit `#include <iostream>` and `using namespace std;` instead.
 
 **ForRangeStmt → C for loop — exact translation logic**
-[fill after phase 6]
+`ForRangeStmt(var='i', start=0, stop=Var('n'), step=1)` becomes:
+- Python: `for i in range(n):` (simplified from range(0, n, 1))
+- C:      `for (int i = 0; i < n; i += 1) { ... }`
+The Python generator simplifies: `range(0, n, 1)` → `range(n)`, `range(a, b, 1)` →
+`range(a, b)`. The C generator always emits the full form for clarity.
 
 **ForEachStmt → C for loop — the _i counter trick**
-[fill after phase 6]
+C has no native for-each. `for x in arr:` becomes:
+`for (int _i = 0; _i < arr_size; _i++) { int x = arr[_i]; ... }`
+The generator looks up `arr` in its symbol table to get the size. `_i` is a generated
+variable name (underscore prefix avoids collision with user variables). Inside the loop,
+a local variable `x` is declared and assigned `arr[_i]` on each iteration.
 
 **Why cpp_generator extends c_generator**
-[fill after phase 6]
+C++ is mostly a superset of C. Function declarations, variable declarations, for loops,
+while loops, if/else, expressions — all use the same C syntax. Only I/O differs:
+`printf` → `cout <<`, `scanf` → `cin >>`. CppGenerator inherits ALL generation methods
+from CGenerator and overrides only three: `_emit_preamble()`, `_gen_print()`,
+`_gen_input()`. This is 54 lines vs 272 — zero code duplication.
 
 **Round-trip test — why Python→Python is the best first test**
-[fill after phase 6]
+Python→Python means the source and target are the same language. If the generated output
+produces different behavior than the original, we know the pipeline has a bug — not a
+translation issue. We exec() both the original and the generated code and compare stdout.
+The test `def add(x,y): return x+y; print(add(3,4))` must produce "7" from both.
+This isolates the pipeline from cross-language complications.
 
 ---
 
 ## PHASE 7 — Validator
-[Agent fills this after Phase 7 completes]
+Dynamic validation: run source + target code, compare stdout to verify translation.
 
 **What dynamic validation means vs static validation**
-[fill after phase 7]
+Static validation (Phase 4, semantic analyzer) checks code WITHOUT running it: "Is this
+variable declared? Do these types match?" Dynamic validation RUNS the code and checks if
+the OUTPUT is correct. This catches bugs that static analysis cannot: for example, if the
+C generator builds the wrong format string, `printf` might print garbage. Static analysis
+sees valid C code; dynamic validation sees wrong output and reports FAIL. Dynamic
+validation is the ultimate test: if both sides produce the same output, the translation
+is correct for that input.
 
 **Why subprocess instead of exec() for all languages**
-[fill after phase 7]
+`exec()` runs Python code in the current process — a bug in generated code (infinite loop,
+exception) would crash the compiler itself. `subprocess.run()` runs code in an ISOLATED
+process with a timeout. If it hangs → timeout kills it. If it crashes → returncode != 0.
+For C/C++, there's no choice: gcc must compile to a binary, and the binary must run as
+a separate process. Using subprocess for Python too gives uniform error handling: timeout,
+returncode, stderr capture — all work the same way regardless of language.
 
 **How float comparison with tolerance works**
-[fill after phase 7]
+`print(1/3)` in Python outputs `0.3333333333333333`. In C, `printf("%f", 1.0/3.0)` outputs
+`0.333333`. Different string representations, same mathematical value. `_float_compare`
+tries to parse both strings as floats: `abs(float(a) - float(b)) < 1e-6`. If the
+difference is less than one millionth, they're considered equal. If either string isn't
+a valid float (e.g., "hello"), `ValueError` is caught and the comparison returns False,
+falling through to exact string matching.
 
 **How test inputs are passed as stdin**
-[fill after phase 7]
+Programs with `scanf`/`input()` need stdin data. The UI sends `test_inputs` as a list of
+strings (e.g., `["42", "3.14"]`). The validator joins them with newlines: `"42\n3.14\n"`.
+This string is passed as `subprocess.run(input=...)` — Python feeds it to the child
+process's stdin. Both source and target receive the SAME input, so their outputs should
+match. If no test_inputs are provided, stdin is empty — programs with input statements
+will block until timeout and fail.
 
 **What has_input() does and why it is needed before running**
-[fill after phase 7]
+`has_input(program)` walks the AST recursively, checking for any `InputStmt` node. If
+found, it returns True. The UI uses this BEFORE showing the validate button: if the
+program has input statements, the UI prompts the user to enter test input values.
+Without this check, the user might click "Validate" without providing inputs, causing
+both processes to hang waiting for stdin until the timeout kills them — a confusing
+experience. The check is done on the AST (not the source text) so it works regardless
+of whether the source was Python (`input()`), C (`scanf`), or C++ (`cin`).
 
 ---
 
