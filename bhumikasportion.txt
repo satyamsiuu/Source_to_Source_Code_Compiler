@@ -1,0 +1,302 @@
+==================================================
+OWNERSHIP HANDBOOK: PREPROCESSOR, LEXER & MAIN PIPELINE
+==================================================
+
+Welcome to your personal mastery document. This handbook is designed to give you ownership-level confidence over your specific portion of the Source-to-Source Compiler project: the Preprocessor, the Lexer infrastructure (Python, C, C++), and the Main Flask Integration layer.
+
+==================================================
+1. COMPLETE THEORETICAL FOUNDATION
+==================================================
+
+PREPROCESSOR
+- What preprocessing is in compilers:
+  In traditional compilers, the preprocessor handles macros, file inclusions (#include), and comment removal before the code even reaches the "real" compiler.
+- Role in this project:
+  In our transpiler, the Preprocessor (Phase 1) has one exclusive job: stripping comments from the raw source code.
+- Input/output flow:
+  Input: Raw source code string and the language type ("python", "c", "cpp").
+  Output: A dictionary containing the `clean_source` (code without comments) and a list of `comments` extracted.
+- Internal workflow:
+  It scans the code character by character. If it detects a comment marker (like `#` or `//`) OUTSIDE of a string literal, it ignores the rest of the line. For C/C++ block comments (`/* */`), it ignores everything until the closing marker.
+- Comment stripping logic:
+  The logic is state-aware. It must track whether the current character is inside a string (`"` or `'`). A `#` inside a string `print("#hello")` is NOT a comment. It only strips when `in_string` is False.
+- Error handling:
+  The only error the preprocessor can catch is an "Unclosed block comment" in C/C++. If it reaches the end of the file without finding `*/`, it collects a `CompilerError` and raises a `CompilerErrorList`.
+- Design decisions & Why needed before lexing:
+  Why a separate phase? Separation of concerns. If the lexer had to handle comments, its regex/scanning logic would become massively bloated. By stripping comments first, the lexer is guaranteed to only see actual code, making it much faster and simpler.
+- Alternatives and tradeoffs:
+  We could have used regular expressions (Regex) to strip comments instead of a character-by-character scanner. Tradeoff: Regex is notoriously bad at handling edge cases like comments inside strings with escaped quotes. A state-machine scanner is more robust and easier to debug, though slightly more verbose to write.
+
+LEXER (Lexical Analysis)
+- What lexical analysis is:
+  It is the process of converting a stream of characters (raw text) into a stream of meaningful objects called "Tokens".
+- Why tokenization is needed:
+  The parser needs to understand the grammar of the code. Trying to parse raw text directly is computationally heavy and ambiguous. Tokens categorize text (e.g., "if" becomes `TokenType.IF`, "42" becomes `TokenType.NUMBER`), giving the parser a structured list to work with.
+- Token generation process:
+  The lexer iterates through the clean source code. It skips whitespace (unless in Python, where leading spaces matter). When it encounters a character, it decides what token to build (e.g., a letter starts an identifier, a digit starts a number, a quote starts a string).
+- Token types:
+  Defined in an Enum (Keywords, Operators, Delimiters, Literals). Enums prevent typos and provide auto-complete.
+- Regex/pattern matching logic:
+  Instead of heavy regex libraries, our lexer uses manual character scanning (`ch.isalpha()`, `ch.isdigit()`). This is a form of manual pattern matching.
+- Lexical scanning process:
+  A `while` loop advances a `pos` (position) pointer. As it reads, it tracks `line` and `col` to attach location metadata to every Token, which is crucial for error messages.
+- INDENT/DEDENT algorithm in depth:
+  Python relies on whitespace for blocks. We use an `indent_stack` (starting at `[0]`). For each line, we count leading spaces.
+  - If spaces > top of stack: We push the new space count to the stack and emit an `INDENT` token (acts like `{`).
+  - If spaces < top of stack: We pop from the stack until we match the current spaces, emitting a `DEDENT` token (acts like `}`) for every pop.
+  - If spaces don't match the stack perfectly during dedent: We throw a "Bad dedent" error.
+- Python lexer vs C lexer vs C++ lexer:
+  The Python lexer is line-oriented and uses the indent stack. The C lexer ignores all whitespace and looks for `{`, `}`, and `;`. The C++ lexer is identical to the C lexer but adds specific keywords (`cout`, `cin`) and operators (`::`).
+- Why cpp extends c lexer:
+  DRY (Don't Repeat Yourself). 95% of C++ tokenization is identical to C. By using Object-Oriented Inheritance (`class CppLexer(CLexer)`), we only override the keyword maps, keeping the codebase lean and professional.
+- Error detection logic:
+  If the lexer encounters an illegal character (e.g., `@` in C) or an unterminated string, it appends a `CompilerError` to its list and continues scanning. It raises the list at the end.
+- How lexer connects parser:
+  The lexer's output (`list[Token]`) is the direct input to the parser. The parser never looks at raw text.
+- Architecture reasoning:
+  We chose a hand-written lexer over a generator tool like `Lex/Flex`. Hand-written lexers are easier to explain, easier to integrate with our custom error handling, and demonstrate deeper understanding for a university project.
+
+MAIN.PY (Integration Layer)
+- Complete role in architecture:
+  It is the Pipeline Controller and the Web Server. It ties all phases together and serves the User Interface.
+- Flask integration:
+  Flask is a micro-framework that maps HTTP requests to Python functions. `main.py` defines the routes the UI will call.
+- All routes and request flow:
+  - `GET /`: Serves the `index.html` file (the UI).
+  - `POST /compile`: Receives code, runs Preprocessor -> Lexer -> Parser -> Semantic Analyzer -> IR Generator. It returns a JSON object with the status and outputs (tokens, AST, symbol table) of each phase.
+  - `POST /generate`: Runs the pipeline up to Phase 5, then executes the requested Code Generator (Phase 6).
+  - `POST /validate`: Runs generation for both source and target, then passes them to the Validator (Phase 7).
+- Phase blocking logic:
+  `main.py` uses a `blocked = False` flag. If Phase 1 throws a `CompilerErrorList`, it catches it, sets `blocked = True`, and marks all subsequent phases as "blocked" in the JSON response. This prevents cascading crashes (e.g., parsing bad tokens).
+- JSON response structure:
+  Standardized API format: `{"lexer": {"status": "pass", "tokens": [...]}, "parser": {"status": "blocked"}}`. The UI parses this to update the tabs.
+- Frontend-backend interaction:
+  The UI uses `fetch()` (AJAX) to send JSON payloads to Flask, ensuring the page never refreshes.
+- Why Flask chosen / Alternatives:
+  Flask was chosen over Django because it is lightweight and requires zero boilerplate. We only needed 4 routes. Django would be overkill. We chose a Web UI over a CLI because compilers are abstract; visualizing the AST and Tokens proves the project works.
+
+==================================================
+2. TOOLS AND TECH USED
+==================================================
+
+- Python: The core backend language.
+  Why used: Python has built-in dataclasses, excellent string manipulation, and dynamic typing which makes building trees (AST) incredibly fast compared to C++.
+- Flask: The web framework.
+  Why used: To bridge the Python compiler logic with the browser UI. Chosen for its minimalist, single-file setup capability.
+- Regex/String Methods: For lexical analysis.
+  Why used: We use Python's built-in string methods (`isalpha`, `isdigit`) instead of heavy Regex libraries for readability and fine-grained error control.
+- Dataclasses: The structural backbone of AST and Tokens.
+  Why used: Standard Python classes require massive boilerplate (`def __init__(self, x): self.x = x`). Dataclasses automate this and provide strict typing (`data_type: DataType`), ensuring the AST is strictly formatted.
+- CompilerError handling (Custom Exceptions):
+  Why used: Standard exceptions crash the program immediately. Our custom `CompilerErrorList` collects all errors in a phase so the user can fix multiple bugs at once, mimicking professional tools like GCC.
+- Token systems (Enums):
+  Why used: `TokenType.IF` is an Enum. It prevents silent typo bugs (e.g., typing "iif" by mistake) because Enums are validated by Python at runtime.
+- JSON APIs: The communication protocol.
+  Why used: JSON is the universal standard for web APIs. Our `to_dict()` methods serialize complex Python objects (like the AST) into JSON so the JavaScript frontend can render the visual tree.
+- Module structure: Separating logic into folders (`lexer/`, `parser/`).
+  Why used: Maintainability. A single 5000-line file is unreadable. Modules allow isolation of concerns.
+
+==================================================
+3. FULL CODE WALKTHROUGH (LINE BY LINE)
+==================================================
+
+--- File: preprocessor/preprocessor.py ---
+Purpose: Strips comments.
+Imports: Imports `CompilerError`, `CompilerErrorList`, `Phase`. (try/except block handles different Python pathing environments).
+
+Class `Preprocessor`:
+- `def process(self, source, lang)`: The main entry point.
+  It initializes an empty `errors = []` list.
+  Condition: `if lang == "python":` calls the python specific stripper.
+  Condition: `elif lang in ("c", "cpp"):` calls the C/C++ stripper.
+  If the language is unknown, it appends an error.
+  Line: `if errors: raise CompilerErrorList(errors)` - the core collect-and-raise pattern.
+  Returns a dict with `clean_source` and `comments`.
+
+- `def _strip_python_comments`:
+  Splits source by `\n`. Loops over lines. Passes each to `_strip_python_line`.
+  Rejoins the cleaned lines with `\n`. Why? To ensure line numbers remain accurate for the Lexer!
+
+- `def _strip_python_line`:
+  Tracks `in_string`.
+  `while i < len(line):` loops chars.
+  If `in_string`, it waits for the matching quote. It checks `line[i-1] != "\\"` to ignore escaped quotes like `\"`.
+  If `ch == "#"`, it slices the string `line[:i]` as the clean part, and `line[i:]` as the comment. Returns early.
+
+- `def _strip_c_comments`:
+  Walks the whole string, not line-by-line, because `/*` spans multiple lines.
+  Tracks `line_num` manually whenever it sees `\n`.
+  Checks `//`: `if ch == "/" and source[i+1] == "/":`. Finds the next `\n` to end the comment.
+  Checks `/*`: `if ch == "/" and source[i+1] == "*":`. Enters a while loop searching for `*/`. If loop ends without finding it, appends "Unclosed block comment" error.
+  Checks Strings: Ignores `//` and `/*` if inside quotes. Handles escape characters `\\`.
+  Appends valid chars to a `clean` list, then uses `"".join(clean)` (which is faster than string concatenation `+=` in Python).
+
+--- File: lexer/tokens.py ---
+Purpose: Defines the vocabulary of the compiler.
+Imports: `dataclass`, `Enum`, `auto`.
+
+Class `TokenType(Enum)`:
+Lists every valid token. Uses `auto()` so Python assigns a unique integer to each. We don't care about the number, only the identity. Groups them into Keywords, Types, Literals, Operators, Delimiters, Meta (EOF).
+
+Class `Token`:
+Decorated with `@dataclass`.
+Fields: `type` (TokenType), `value` (str - the raw text), `line` (int), `col` (int).
+Method `to_dict(self)`: Converts the token to a dictionary for the Flask API. `self.type.name` converts the Enum object into a string (e.g., "IF").
+
+--- File: lexer/python_lexer.py ---
+Purpose: Tokenizes Python, handling whitespace blocks.
+Imports: Tokens and Errors.
+Constants: Maps string keywords to `TokenType` (e.g., `"if": TokenType.IF`). Differentiates 2-char ops (`==`) from 1-char ops (`=`).
+
+Class `PythonLexer`:
+- `def tokenize(self, source)`:
+  Initializes `self.tokens`, `self.errors`, and `self.indent_stack = [0]`.
+  Splits source into lines. Skips blank lines.
+  Calls `_handle_indent(line)` then `_tokenize_line(line)`.
+  Emits a `NEWLINE` token at the end of each line (Python parsers need this to know when a statement ends).
+  At EOF, calls `_close_indents()` to emit trailing DEDENTs, then emits `EOF`.
+
+- `def _handle_indent(self, line)`:
+  Counts leading spaces. Checks for `\t` (tabs) and errors if found.
+  Compares space count to `self.indent_stack[-1]` (top of stack).
+  If greater: append to stack, emit `INDENT`.
+  If lesser: `while` loop pops the stack and emits `DEDENT` until stack matches indent.
+  If after popping, stack top != indent, it means the dedent was misaligned -> throws error.
+
+- `def _tokenize_line(self, line)`:
+  Advances `col` index.
+  Skips spaces.
+  Checks `"` or `'` -> calls `_read_string()`.
+  Checks `ch.isdigit()` -> calls `_read_number()`.
+  Checks 2-char ops first! (Crucial: if it sees `=`, it must check if the next is `=` to form `==` before assuming it's a single `=`).
+  Checks 1-char ops.
+  Checks `ch.isalpha()` -> calls `_read_identifier()`.
+  If none match, emits "Unexpected character" error.
+
+--- File: lexer/c_lexer.py ---
+Purpose: Tokenizes C. No whitespace logic.
+Design: Built to be inherited. Uses getter methods for keyword dictionaries.
+
+Class `CLexer`:
+- `get_keywords()`, `get_two_char_ops()`: Returns dictionaries. Subclasses can override these.
+- `tokenize()`:
+  Loops through characters via `pos` index.
+  Skips all whitespace `(" ", "\t", "\n", "\r")`. It tracks line/col manually.
+  Handles `#` by calling `_read_include()`.
+  Reads strings, numbers, operators exactly like Python but without caring about lines.
+  Skips `&` because in our subset, `&` only appears in `scanf(&x)`. The parser handles this implicitly.
+
+- `_advance()`: Helper to move `pos` +1. If it hits `\n`, it increments `line` and resets `col` to 1.
+- `_read_include()`: Consumes `#include` and ignores the rest of the line (since our preprocessor handles it abstractly and we don't link actual files).
+
+--- File: lexer/cpp_lexer.py ---
+Purpose: Tokenizes C++.
+Imports: Inherits from `CLexer`.
+Constants: `CPP_KEYWORDS` merges `C_KEYWORDS` and adds `cout`, `cin`. `CPP_TWO_CHAR_OPS` adds `::`.
+
+Class `CppLexer(CLexer)`:
+Only overrides `get_keywords()` and `get_two_char_ops()`.
+Why written this way? Object-Oriented polymorphism. The `tokenize()` loop in `CLexer` calls `self.get_keywords()`. Because `CppLexer` overrides it, the base loop automatically uses the C++ keywords without rewriting the massive `while` loop. If removed, we would have to copy-paste 200 lines of C lexer code.
+
+--- File: main.py ---
+Purpose: Flask Server and Pipeline Orchestrator.
+Imports: Flask tools, all Lexers, Parsers, Generators, Semantic Analyzer, Validator, and AST nodes.
+
+- `_get_lexer`, `_get_parser`, `_get_generator`: Factory functions. They take a language string ("python") and return the correct instantiated class (`PythonLexer()`).
+- `_run_frontend_pipeline`: A helper that runs Preprocessor -> Lexer -> Parser -> Semantic -> IR. Used by `/generate` and `/validate` to get the AST.
+- `@app.route('/compile', methods=['POST'])`:
+  The massive endpoint that powers the UI.
+  Initializes a `results` dictionary with "pending" statuses.
+  Uses a `blocked = False` flag.
+  Phase 1 (Preprocessor): `try` to process. On success, save `clean_source`. `except CompilerErrorList as e`: save errors to JSON, set `blocked = True`.
+  Phase 2 (Lexer): `if not blocked:` try to tokenize. Else, set status to "blocked".
+  Phase 3 (Parser): Uses `ASTEncoder` (a custom JSON encoder) to convert the complex Python dataclasses into standard JSON strings so the UI can draw the tree.
+  Phase 4 (Semantic): Builds a human-readable summary of variables to display in the symbol table UI.
+  Phase 5 (IR): Validates AST and checks `has_input` (tells the UI whether to show the stdin prompt box).
+  Returns `jsonify(results)`.
+
+==================================================
+4. ALGORITHMS DEEP DIVE
+==================================================
+
+1. INDENT/DEDENT STACK ALGORITHM (Dry Run)
+Code:
+```python
+def x():       # line 1 (indent 0)
+    a = 1      # line 2 (indent 4)
+    if a:      # line 3 (indent 4)
+        b = 2  # line 4 (indent 8)
+# EOF          # line 5 (indent 0)
+```
+- Line 1: `indent=0`. Stack `[0]`. Match. No tokens.
+- Line 2: `indent=4`. Stack `[0]`. `4 > 0`. Push 4. Stack `[0, 4]`. Emit `INDENT`.
+- Line 3: `indent=4`. Stack `[0, 4]`. Match. No tokens.
+- Line 4: `indent=8`. Stack `[0, 4]`. `8 > 4`. Push 8. Stack `[0, 4, 8]`. Emit `INDENT`.
+- EOF: `_close_indents()` runs. Stack `[0, 4, 8]`. Pop 8 -> Emit `DEDENT`. Pop 4 -> Emit `DEDENT`. Stack is `[0]`. Done.
+
+2. LEXICAL SCANNING (Two-Char vs One-Char)
+Code: `a <= b`
+- Lexer sees `<`.
+- It checks `pos + 1`. It slices `line[pos:pos+2]`, which is `<=`.
+- It checks the `TWO_CHAR_OPS` dict. `<=` exists!
+- It emits a `LEQ` token and advances `pos += 2`.
+- What happens if we check 1-char first? It would see `<`. Emit `LT`. Advance 1. See `=`. Emit `ASSIGN`. The parser would crash on `a < = b`. Order of operations is mathematically critical.
+
+3. PHASE PIPELINE FLOW
+The pipeline acts like a series of filters. 
+Raw Text -> Preprocessor -> Clean Text
+Clean Text -> Lexer -> List of Tokens
+List of Tokens -> Parser -> AST Tree
+AST Tree -> Semantic Analyzer -> Annotated AST Tree + Symbol Table
+Annotated AST Tree -> Code Generator -> Target Text
+If any filter catches "dirt" (errors), the pipeline halts immediately to prevent the next filter from choking on bad input.
+
+==================================================
+5. DEBUGGING + EDGE CASES
+==================================================
+
+Common Bugs & Failure Scenarios:
+- Mixed Whitespace (Python Lexer): A user copies code from the web with tabs, but types with spaces. The lexer cannot mathematically align them. Handled via explicit error.
+- Unterminated Strings: `x = "hello`. The lexer reaches the end of the line/file. Handled by tracking `in_string` and throwing an error if it doesn't resolve by newline (Python) or EOF (C).
+- Unclosed Block Comments (Preprocessor): `/* comment`. Handled by reaching EOF without `*/` and throwing a Preprocessor Phase error.
+
+Debugging Approach (Ownership Level):
+If a user says "My python code isn't parsing":
+1. Open the UI.
+2. Check the Lexer Tab. Are the INDENT/DEDENT tokens aligning exactly where blocks open and close?
+3. If yes, the Lexer is fine. The issue is the Parser.
+4. If no, check the raw text for hidden tab characters or misaligned spaces.
+
+Unsupported Cases:
+- Multi-line statements in Python (using `\` or implied continuation inside `()`). The current python lexer expects statements to end at `NEWLINE`.
+
+==================================================
+6. VIVA / EXAMINER PREPARATION
+==================================================
+
+Q1: "Why does the Preprocessor run before the Lexer instead of checking comments during Lexing?"
+Ideal Answer: "Separation of concerns. If the Lexer handled comments, its state machine would have to track 'comment modes' inside its already complex string and token reading logic. Stripping comments first guarantees the Lexer only processes executable code, reducing bug surface area."
+
+Q2: "Explain how you handle Python's indentation since there are no brackets."
+Ideal Answer: "I implemented a Stack-based tracking algorithm. It counts leading spaces. If spaces increase, it pushes to the stack and emits an INDENT token. If spaces decrease, it pops from the stack and emits DEDENT tokens. This effectively translates Python's invisible whitespace into explicit structural tokens that the Parser can read just like C's curly braces."
+
+Q3: "Why does CppLexer inherit from CLexer?"
+Ideal Answer: "Because C++ is structurally a superset of C. By using Object-Oriented inheritance, I reused the entire lexical scanning loop, whitespace ignorance logic, and number/string parsing. I only overrode the keyword and operator dictionaries to inject C++ specific tokens like `cout` and `::`. This adheres to the DRY principle."
+
+Q4: "What happens in main.py if the Lexer fails?"
+Ideal Answer: "I implemented a Phase Blocking architecture. The Lexer collects errors and raises a `CompilerErrorList`. `main.py` catches this exception, packages the errors into JSON, sets a `blocked` flag, and immediately halts. This prevents the Parser from trying to parse corrupted tokens, which would result in cascading, unreadable errors."
+
+==================================================
+7. QUICK REVISION CHEAT SHEET
+==================================================
+
+- Preprocessor: Strips `#`, `//`, `/* */`. Operates on characters. Simplifies lexer life.
+- Lexer: Text -> Tokens. Python uses `indent_stack` for blocks. C/C++ ignore spaces.
+- Tokens: Enums defining vocabulary (`TokenType.IF`, `TokenType.NUMBER`). Holds line/col metadata.
+- Inheritance: CppLexer `extends` CLexer. Overrides dictionaries, reuses logic loop.
+- Error Handling: Collect-then-raise. `CompilerErrorList` halts pipeline at end of phase.
+- Main.py: Flask API controller. Orchestrates `compile` (Phases 1-5), `generate` (Phase 6), `validate` (Phase 7). Manages phase blocking via try/except.
+- API Output: Standardized JSON format allowing decoupled JavaScript frontend to render data natively.
+==================================================
+END OF HANDBOOK
+==================================================
