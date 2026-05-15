@@ -112,7 +112,7 @@ class PythonLexer:
         This implements the indent_stack algorithm that makes Python's
         whitespace-based blocks work with a standard parser.
         """
-        # Count leading spaces
+        # Count leading spaces 
         indent = 0
         for ch in line:
             if ch == " ":
@@ -166,7 +166,7 @@ class PythonLexer:
 
         Walks character by character through the line content, building tokens.
         """
-        col = 0
+        col = 0 
         # Skip leading whitespace (already handled by _handle_indent)
         while col < len(line) and line[col] in (" ", "\t"):
             col += 1

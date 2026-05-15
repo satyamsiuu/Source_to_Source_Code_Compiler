@@ -13,6 +13,42 @@ PREPROCESSOR
   In traditional compilers, the preprocessor handles macros, file inclusions (#include), and comment removal before the code even reaches the "real" compiler.
 - Role in this project:
   In our transpiler, the Preprocessor (Phase 1) has one exclusive job: stripping comments from the raw source code.
+----------The Design Choice: Abstracting Header Files----------------
+  In a traditional compiler, #include <stdio.h> literally copy-pastes thousands of lines of code from stdio.h into your file. For a Source-to-Source Transpiler (which
+  translates logic like print to printf), we don't actually need to "expand" the headers. We only need to know that the user intended to include a library so we can
+  generate the equivalent inclusion in the target language (e.g., if you write import math in Python, we generate #include <math.h> in C).
+
+  2. Who handles it if not the Preprocessor?
+  In our architecture, the Lexer (specifically the CLexer and CppLexer) is the one that notices the #include directive, not the Preprocessor.
+
+  If you look at transpiler/lexer/c_lexer.py, you will see a method called _read_include():
+
+   1 def _read_include(self):
+   2     """Read a #include directive. Emits INCLUDE token + skips the rest of the line."""
+   3     # ... logic to find '#' then the word 'include' ...
+   4     if word == "include":
+   5         self.tokens.append(Token(TokenType.INCLUDE, "#include", self.line, start_col))
+   6         # It then skips the rest of the line (like <stdio.h>)
+
+  3. Why the Preprocessor only removes comments?
+  We moved #include handling out of the Preprocessor for two reasons:
+   1. Scope Simplicity: The project is designed to demonstrate how code logic (loops, variables, functions) is translated. Handling file paths and system headers would add
+      massive complexity (file system access, path searching) that isn't the core focus of this university-level project.
+   2. Lexical Recognition: By letting the Lexer handle #include, we can create a specific INCLUDE token. The Parser then sees this token and simply "acknowledges" it or
+      ignores it, ensuring the rest of the code is parsed correctly without the clutter of thousands of lines of expanded header code.
+
+  Summary Comparison:
+  ┌──────────┬───────────────────────────────────┬────────────────────────────────┐
+  │ Feature  │ Traditional Compiler Preprocessor │ Our Project's Preprocessor     │
+  ├──────────┼───────────────────────────────────┼────────────────────────────────┤
+  │ Comments │ Removed                           │ Removed                        │
+  │ #include │ Expands/Pastes entire files       │ Ignored/Tokenized (by Lexer)   │
+  │ Macros   │ Replaces #define text             │ Not supported (for simplicity) │
+  └──────────┴───────────────────────────────────┴────────────────────────────────┘
+
+  In short: Our Preprocessor is "lightweight." It cleans the "noise" (comments) so the Lexer can work easily. The Lexer then simply "skips over" or "marks" the #include
+  lines so they don't crash the Parser.
+
 - Input/output flow:
   Input: Raw source code string and the language type ("python", "c", "cpp").
   Output: A dictionary containing the `clean_source` (code without comments) and a list of `comments` extracted.
@@ -26,6 +62,67 @@ PREPROCESSOR
   Why a separate phase? Separation of concerns. If the lexer had to handle comments, its regex/scanning logic would become massively bloated. By stripping comments first, the lexer is guaranteed to only see actual code, making it much faster and simpler.
 - Alternatives and tradeoffs:
   We could have used regular expressions (Regex) to strip comments instead of a character-by-character scanner. Tradeoff: Regex is notoriously bad at handling edge cases like comments inside strings with escaped quotes. A state-machine scanner is more robust and easier to debug, though slightly more verbose to write.
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+1. Input (Raw Source Code)
+  The Preprocessor receives the raw string exactly as the user typed it into the UI.
+
+  Input String:
+
+   1 #include <iostream>
+   2 int x = 10; // This is a counter
+   3 /* 
+   4    Multi-line 
+   5    comment 
+   6 */
+   7 cout << x;
+
+  ---
+
+  2. Internal Workflow (Step-by-Step)
+  The Preprocessor uses a state-machine approach (tracking if it is "inside a comment" or "inside a string").
+
+   1. Scanning Line 1: Sees #include <iostream>. It's not a comment, so it keeps it.
+   2. Scanning Line 2: Sees int x = 10; . Then it hits //. 
+       * Action: It identifies // as the start of a single-line comment.
+       * Action: It "clips" the string and ignores everything until it sees a \n (newline).
+       * Memory: clean_source gets int x = 10;. comments list gets // This is a counter.
+   3. Scanning Line 3: Sees /*.
+       * Action: It enters "Block Comment Mode". 
+       * Action: It ignores every character (including newlines) until it specifically finds */.
+       * Memory: comments list adds the multi-line text.
+   4. Scanning Line 7: Sees cout << x;. Keeps it.
+
+  ---
+
+  3. Output (The Result Object)
+  The Preprocessor returns a Dictionary containing two things:
+
+  A. clean_source (The Code):
+  Notice that the structure (newlines) is preserved so that the Lexer's line numbers remain accurate, but the comments are gone.
+
+   1 #include <iostream>
+   2 int x = 10; 
+   3
+   4
+   5
+   6 cout << x;
+
+  B. comments (The Metadata):
+  A list of strings extracted during the process.
+
+   1 [
+   2     "// This is a counter",
+   3     "/* \n   Multi-line \n   comment \n*/"
+   4 ]
+
+  ---
+
+  Why this workflow is important:
+  Imagine if the Lexer saw the // in the middle of a line. The Lexer would try to find a token for /, then another /, then a token for This, then is... it would get very
+  confused! 
+
 
 LEXER (Lexical Analysis)
 - What lexical analysis is:
@@ -47,7 +144,7 @@ LEXER (Lexical Analysis)
   - If spaces don't match the stack perfectly during dedent: We throw a "Bad dedent" error.
 - Python lexer vs C lexer vs C++ lexer:
   The Python lexer is line-oriented and uses the indent stack. The C lexer ignores all whitespace and looks for `{`, `}`, and `;`. The C++ lexer is identical to the C lexer but adds specific keywords (`cout`, `cin`) and operators (`::`).
-- Why cpp extends c lexer:
+- Why cpp extends c lexer
   DRY (Don't Repeat Yourself). 95% of C++ tokenization is identical to C. By using Object-Oriented Inheritance (`class CppLexer(CLexer)`), we only override the keyword maps, keeping the codebase lean and professional.
 - Error detection logic:
   If the lexer encounters an illegal character (e.g., `@` in C) or an unterminated string, it appends a `CompilerError` to its list and continues scanning. It raises the list at the end.
@@ -56,49 +153,10 @@ LEXER (Lexical Analysis)
 - Architecture reasoning:
   We chose a hand-written lexer over a generator tool like `Lex/Flex`. Hand-written lexers are easier to explain, easier to integrate with our custom error handling, and demonstrate deeper understanding for a university project.
 
-MAIN.PY (Integration Layer)
-- Complete role in architecture:
-  It is the Pipeline Controller and the Web Server. It ties all phases together and serves the User Interface.
-- Flask integration:
-  Flask is a micro-framework that maps HTTP requests to Python functions. `main.py` defines the routes the UI will call.
-- All routes and request flow:
-  - `GET /`: Serves the `index.html` file (the UI).
-  - `POST /compile`: Receives code, runs Preprocessor -> Lexer -> Parser -> Semantic Analyzer -> IR Generator. It returns a JSON object with the status and outputs (tokens, AST, symbol table) of each phase.
-  - `POST /generate`: Runs the pipeline up to Phase 5, then executes the requested Code Generator (Phase 6).
-  - `POST /validate`: Runs generation for both source and target, then passes them to the Validator (Phase 7).
-- Phase blocking logic:
-  `main.py` uses a `blocked = False` flag. If Phase 1 throws a `CompilerErrorList`, it catches it, sets `blocked = True`, and marks all subsequent phases as "blocked" in the JSON response. This prevents cascading crashes (e.g., parsing bad tokens).
-- JSON response structure:
-  Standardized API format: `{"lexer": {"status": "pass", "tokens": [...]}, "parser": {"status": "blocked"}}`. The UI parses this to update the tabs.
-- Frontend-backend interaction:
-  The UI uses `fetch()` (AJAX) to send JSON payloads to Flask, ensuring the page never refreshes.
-- Why Flask chosen / Alternatives:
-  Flask was chosen over Django because it is lightweight and requires zero boilerplate. We only needed 4 routes. Django would be overkill. We chose a Web UI over a CLI because compilers are abstract; visualizing the AST and Tokens proves the project works.
 
-==================================================
-2. TOOLS AND TECH USED
-==================================================
-
-- Python: The core backend language.
-  Why used: Python has built-in dataclasses, excellent string manipulation, and dynamic typing which makes building trees (AST) incredibly fast compared to C++.
-- Flask: The web framework.
-  Why used: To bridge the Python compiler logic with the browser UI. Chosen for its minimalist, single-file setup capability.
-- Regex/String Methods: For lexical analysis.
-  Why used: We use Python's built-in string methods (`isalpha`, `isdigit`) instead of heavy Regex libraries for readability and fine-grained error control.
-- Dataclasses: The structural backbone of AST and Tokens.
-  Why used: Standard Python classes require massive boilerplate (`def __init__(self, x): self.x = x`). Dataclasses automate this and provide strict typing (`data_type: DataType`), ensuring the AST is strictly formatted.
-- CompilerError handling (Custom Exceptions):
-  Why used: Standard exceptions crash the program immediately. Our custom `CompilerErrorList` collects all errors in a phase so the user can fix multiple bugs at once, mimicking professional tools like GCC.
-- Token systems (Enums):
-  Why used: `TokenType.IF` is an Enum. It prevents silent typo bugs (e.g., typing "iif" by mistake) because Enums are validated by Python at runtime.
-- JSON APIs: The communication protocol.
-  Why used: JSON is the universal standard for web APIs. Our `to_dict()` methods serialize complex Python objects (like the AST) into JSON so the JavaScript frontend can render the visual tree.
-- Module structure: Separating logic into folders (`lexer/`, `parser/`).
-  Why used: Maintainability. A single 5000-line file is unreadable. Modules allow isolation of concerns.
-
-==================================================
-3. FULL CODE WALKTHROUGH (LINE BY LINE)
-==================================================
+==========================================================================================================================================================================
+FULL CODE WALKTHROUGH (LINE BY LINE)
+==========================================================================================================================================================================
 
 --- File: preprocessor/preprocessor.py ---
 Purpose: Strips comments.
